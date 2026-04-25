@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="ja">
 <head>
 <meta charset="UTF-8"/>
@@ -17,12 +18,16 @@ input,select,textarea,button{font-family:inherit;}
 ::-webkit-scrollbar-track{background:transparent;}
 ::-webkit-scrollbar-thumb{background:#C8D4E8;border-radius:4px;}
 #root{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);}
+.floor-label{writing-mode:horizontal-tb;font-size:9px;font-weight:700;color:#A0AABF;text-align:center;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.6;}}
+.working{animation:pulse 1.5s infinite;}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script>
-const swCode=`const CACHE="doujin-v1";self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll([])).then(()=>self.skipWaiting()));});self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});self.addEventListener("fetch",e=>{if(e.request.url.includes("anthropic.com"))return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)));});`;
+// PWA setup
+const swCode=`const CACHE="doujin-v2";self.addEventListener("install",e=>{e.waitUntil(self.skipWaiting());});self.addEventListener("activate",e=>{e.waitUntil(self.clients.claim());});self.addEventListener("fetch",e=>{if(e.request.url.includes("anthropic.com"))return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)));});`;
 if("serviceWorker"in navigator){const b=new Blob([swCode],{type:"text/javascript"});navigator.serviceWorker.register(URL.createObjectURL(b),{scope:"./"}).catch(()=>{});}
 const m={name:"同人コーチ",short_name:"同人コーチ",display:"standalone",background_color:"#F2F5FA",theme_color:"#A04AF4",start_url:"./",icons:[{src:"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%23A04AF4'/><text y='140' x='96' text-anchor='middle' font-size='120'>✏️</text></svg>",sizes:"192x192",type:"image/svg+xml"}]};
 const mb=new Blob([JSON.stringify(m)],{type:"application/manifest+json"});
@@ -33,96 +38,679 @@ const fixH=()=>{document.body.style.height=window.innerHeight+"px";const r=docum
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script type="text/babel" data-presets="react">
-const{useState,useEffect,useRef}=React;
-const SK="doujin-v3";
-const DD={project:{title:"無題",event:"",deadline:"",totalPages:0},panels:{"プロット/ネーム":[],"原稿":[],"グッズ/バナー":[]},tasks:[],calendar:{},nextTaskId:1};
+const{useState,useEffect,useRef,useCallback}=React;
+const SK="doujin-v4";
+const DD={
+  project:{title:"無題",event:"",deadline:"",totalPages:0},
+  panels:{"プロット/ネーム":[],"原稿":[],"グッズ/ノベルティ":[]},
+  tasks:[],calendar:{},
+  goals:{dailyPages:0,targetStage:"仕上げ"},
+  dailyLog:[],
+  nextTaskId:1,
+};
 const PS=["ネーム","下描き","ペン入れ","仕上げ"];
 const SS={"ネーム":{soft:"#FFF8F0",ac:"#F4A04A"},"下描き":{soft:"#F0FAF4",ac:"#48B06A"},"ペン入れ":{soft:"#F0F5FF",ac:"#4A7CF4"},"仕上げ":{soft:"#F8F0FF",ac:"#A04AF4"}};
-const LC=["プロット/ネーム","原稿","グッズ/バナー"];
+const LC=["プロット/ネーム","原稿","グッズ/ノベルティ"];
 const SO=["未着手","作業中","完了"];
 const SC={"未着手":"#B0BAD0","作業中":"#F4A04A","完了":"#48B06A"};
 const SPO=["未着手","作業中","完了","保留"];
 const SPB={"未着手":"#F0F4FA","作業中":"#FFF8F0","完了":"#F0FAF4","保留":"#F8F0FF"};
 const SPD={"未着手":"#D0D8EC","作業中":"#F4C08A","完了":"#90D4A8","保留":"#C890EC"};
 const SPT={"未着手":"#7B8DB0","作業中":"#C07020","完了":"#2A7A4A","保留":"#7020C0"};
+
 function gdl(dl){if(!dl)return null;const t=new Date();t.setHours(0,0,0,0);const d=new Date(dl);d.setHours(0,0,0,0);return Math.ceil((d-t)/86400000);}
-function uc(dl){if(dl===null)return"#A0AABF";if(dl<0)return"#B0B8C8";if(dl<3)return"#E84545";if(dl<7)return"#F47B20";if(dl<14)return"#D4960A";return"#48B06A";}
-function um(dl){if(dl===null)return"締め切りを設定しましょう";if(dl<0)return"締め切りが過ぎています…";if(dl===0)return"今日が締め切り！急いで！";if(dl<3)return"🚨 緊急！今すぐ作業して！";if(dl<7)return"🔥 ラストスパート！";if(dl<14)return"⚡ そろそろ本気を出す時！";return"✨ 余裕あり！コツコツ進めよう";}
-function cps(tasks,tp){const r={};for(const s of PS){const st=tasks.filter(t=>t.stage===s);r[s]={done:st.filter(t=>t.status==="完了").reduce((a,t)=>a+(Number(t.pages)||0),0),total:st.reduce((a,t)=>a+(Number(t.pages)||0),0)};}r["全体"]={done:r["仕上げ"].done,total:Number(tp)||0};return r;}
+function uc(dl){if(dl===null)return”#A0AABF”;if(dl<0)return”#B0B8C8”;if(dl<3)return”#E84545”;if(dl<7)return”#F47B20”;if(dl<14)return”#D4960A”;return”#48B06A”;}
+function um(dl){if(dl===null)return”締め切りを設定しましょう”;if(dl<0)return”締め切りが過ぎています…”;if(dl===0)return”今日が締め切り！急いで！”;if(dl<3)return”🚨 緊急！今すぐ作業して！”;if(dl<7)return”🔥 ラストスパート！”;if(dl<14)return”⚡ そろそろ本気を出す時！”;return”✨ 余裕あり！コツコツ進めよう”;}
+function cps(tasks,tp){
+const r={};
+for(const s of PS){const st=tasks.filter(t=>t.stage===s);r[s]={done:st.filter(t=>t.status===“完了”).reduce((a,t)=>a+(Number(t.pages)||0),0),total:st.reduce((a,t)=>a+(Number(t.pages)||0),0)};}
+r[“全体”]={done:r[“仕上げ”].done,total:Number(tp)||0};return r;
+}
 function ymd(d){return d.toISOString().slice(0,10);}
 function dim(y,m){return new Date(y,m+1,0).getDate();}
 function fdw(y,m){return new Date(y,m,1).getDay();}
-function Advisor({project,tasks}){
-const[msgs,setMsgs]=useState([]);const[inp,setInp]=useState("");const[loading,setLoading]=useState(false);const ref=useRef(null);
-useEffect(()=>{ref.current?.scrollIntoView({behavior:"smooth"});},[msgs]);
-const send=async()=>{const text=inp.trim();if(!text||loading)return;setInp("");const dl=gdl(project.deadline);const next=[...msgs,{role:"user",content:text}];setMsgs(next);setLoading(true);const sys=`あなたは同人作家専属の熱血漫画コーチ。プロジェクト:${project.title} 締切残り:${dl!==null?dl+"日":"不明"} 総P:${project.totalPages||0} タスク:${tasks.length}件 完了:${tasks.filter(t=>t.status==="完了").length}件 熱血・親身・150字以内・絵文字OK`;
-try{const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,system:sys,messages:next})});const data=await res.json();setMsgs([...next,{role:"assistant",content:data.content?.map(b=>b.text||"").join("")||"エラー"}]);}catch{setMsgs([...next,{role:"assistant",content:"通信エラーです。"}]);}setLoading(false);};
-return(<div style={{display:"flex",flexDirection:"column",height:"100%",minHeight:0}}><div style={{flex:1,overflowY:"auto",padding:"10px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>{msgs.length===0&&<div style={{color:"#C0C8D8",fontSize:12,textAlign:"center",marginTop:30,lineHeight:1.9}}>コーチに何でも相談を！</div>}{msgs.map((m,i)=>(<div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",gap:5,alignItems:"flex-end"}}>{m.role==="assistant"&&<div style={{width:22,height:22,borderRadius:"50%",background:"linear-gradient(135deg,#F4A04A,#A04AF4)",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>🎯</div>}<div style={{maxWidth:"80%",padding:"8px 11px",borderRadius:m.role==="user"?"14px 14px 3px 14px":"14px 14px 14px 3px",background:m.role==="user"?"linear-gradient(135deg,#7BA7F7,#A78BF7)":"#F0F4FA",color:m.role==="user"?"#fff":"#2A3550",fontSize:12,lineHeight:1.65,whiteSpace:"pre-wrap"}}>{m.content}</div></div>))}{loading&&<div style={{display:"flex",gap:5,alignItems:"flex-end"}}><div style={{width:22,height:22,borderRadius:"50%",background:"linear-gradient(135deg,#F4A04A,#A04AF4)",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}}>🎯</div><div style={{padding:"8px 11px",background:"#F0F4FA",borderRadius:"14px 14px 14px 3px",color:"#A0AABF",fontSize:12}}>考え中…</div></div>}<div ref={ref}/></div><div style={{borderTop:"1px solid #EDF0F6",padding:"8px",display:"flex",gap:6}}><input value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} placeholder="相談する…" style={{flex:1,background:"#F7F9FC",border:"1.5px solid #E4E8F0",borderRadius:10,padding:"7px 10px",color:"#2A3550",fontSize:12,outline:"none"}}/><button onClick={send} disabled={loading||!inp.trim()} style={{padding:"7px 12px",borderRadius:10,border:"none",cursor:loading||!inp.trim()?"default":"pointer",background:loading||!inp.trim()?"#EDF0F7":"linear-gradient(135deg,#7BA7F7,#A78BF7)",color:loading||!inp.trim()?"#B0BACC":"#fff",fontWeight:"700",fontSize:12}}>送信</button></div></div>);}
+function todayYmd(){return ymd(new Date());}
 
-function MiniCalendar({calendar,onUpdate,deadline}){
-const today=new Date();const[cur,setCur]=useState({y:today.getFullYear(),m:today.getMonth()});const[sel,setSel]=useState(ymd(today));const[inp,setInp]=useState("");
-const days=dim(cur.y,cur.m),first=fdw(cur.y,cur.m),todayStr=ymd(today),dlStr=deadline||"",selItems=calendar[sel]||[];
-const addItem=()=>{if(!inp.trim())return;onUpdate({...calendar,[sel]:[...(calendar[sel]||[]),{text:inp.trim(),done:false}]});setInp("");};
-const toggleItem=idx=>{const arr=[...(calendar[sel]||[])];arr[idx]={...arr[idx],done:!arr[idx].done};onUpdate({...calendar,[sel]:arr});};
-const removeItem=idx=>onUpdate({...calendar,[sel]:(calendar[sel]||[]).filter((_,i)=>i!==idx)});
-const DOW=["日","月","火","水","木","金","土"];
-return(<div style={{display:"flex",flexDirection:"column",gap:8,height:"100%"}}><div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}><button onClick={()=>setCur(c=>c.m===0?{y:c.y-1,m:11}:{y:c.y,m:c.m-1})} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#7B8DB0",padding:"2px 8px"}}>‹</button><span style={{fontSize:13,fontWeight:"700",color:"#2A3550"}}>{cur.y}年{cur.m+1}月</span><button onClick={()=>setCur(c=>c.m===11?{y:c.y+1,m:0}:{y:c.y,m:c.m+1})} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#7B8DB0",padding:"2px 8px"}}>›</button></div><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>{DOW.map((d,i)=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:"700",color:i===0?"#F47B7B":i===6?"#7BA7F7":"#A0AABF",padding:"2px 0"}}>{d}</div>)}{Array.from({length:first}).map((_,i)=><div key={"e"+i}/>)}{Array.from({length:days}).map((_,i)=>{const dd=String(i+1).padStart(2,"0"),mm=String(cur.m+1).padStart(2,"0"),dstr=`${cur.y}-${mm}-${dd}`,isToday=dstr===todayStr,isSel=dstr===sel,isDL=dstr===dlStr,hasItem=(calendar[dstr]||[]).length>0,dow=(first+i)%7;return(<div key={i} onClick={()=>setSel(dstr)} style={{textAlign:"center",fontSize:11,padding:"5px 2px",borderRadius:7,cursor:"pointer",position:"relative",background:isSel?"linear-gradient(135deg,#7BA7F7,#A78BF7)":isDL?"#FFE8E8":isToday?"#EEF4FF":"transparent",color:isSel?"#fff":isDL?"#E84545":isToday?"#5A7EF4":dow===0?"#F47B7B":dow===6?"#7BA7F7":"#2A3550",fontWeight:isToday||isSel||isDL?"700":"400",border:isDL&&!isSel?"1.5px solid #F4A4A4":"1.5px solid transparent"}}>{i+1}{hasItem&&!isSel&&<div style={{width:4,height:4,borderRadius:"50%",background:"#A78BF7",position:"absolute",bottom:2,left:"50%",transform:"translateX(-50%)"}}/>}{isDL&&!isSel&&<div style={{fontSize:7,color:"#E84545",lineHeight:1}}>〆</div>}</div>);})}</div><div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column",gap:6}}><div style={{fontSize:11,fontWeight:"700",color:"#7B8DB0"}}>{sel} の予定</div><div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>{selItems.length===0&&<div style={{color:"#C0C8D8",fontSize:11,textAlign:"center",paddingTop:8}}>予定なし</div>}{selItems.map((it,idx)=>(<div key={idx} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 8px",background:it.done?"#F5FFF8":"#F7F9FC",borderRadius:8,border:"1px solid #EDF0F7"}}><div onClick={()=>toggleItem(idx)} style={{width:14,height:14,borderRadius:4,border:`2px solid ${it.done?"#48B06A":"#C0CADC"}`,background:it.done?"#48B06A":"transparent",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{it.done&&<span style={{color:"#fff",fontSize:9,lineHeight:1}}>✓</span>}</div><span style={{flex:1,fontSize:11,color:it.done?"#88A898":"#2A3550",textDecoration:it.done?"line-through":"none"}}>{it.text}</span><button onClick={()=>removeItem(idx)} style={{background:"none",border:"none",color:"#C8D0E0",cursor:"pointer",fontSize:12,lineHeight:1,padding:0}}>×</button></div>))}</div><div style={{display:"flex",gap:5}}><input value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addItem()} placeholder="予定を追加…" style={{flex:1,background:"#F7F9FC",border:"1.5px solid #E4E8F0",borderRadius:8,padding:"6px 9px",color:"#2A3550",fontSize:11,outline:"none"}}/><button onClick={addItem} disabled={!inp.trim()} style={{padding:"6px 10px",borderRadius:8,border:"none",cursor:inp.trim()?"pointer":"default",background:inp.trim()?"linear-gradient(135deg,#7BA7F7,#A78BF7)":"#EDF0F7",color:inp.trim()?"#fff":"#B0BACC",fontWeight:"700",fontSize:11}}>＋</button></div></div></div>);}
+// ── File to base64 ──
+function fileToB64(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=rej;r.readAsDataURL(file);});}
 
-function ProgressPane({tasks,totalPages,onAddTask,onUpdateStatus,onDeleteTask}){
-const[showForm,setShowForm]=useState(false);const[nt,setNt]=useState({title:"",stage:"ネーム",pages:""});const ps=cps(tasks,totalPages);
-const add=()=>{if(!nt.title.trim())return;onAddTask({...nt,pages:Number(nt.pages)||0});setNt({title:"",stage:"ネーム",pages:""});setShowForm(false);};
-return(<div style={{display:"flex",flexDirection:"column",gap:8,height:"100%",minHeight:0}}><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,flexShrink:0}}>{PS.map(s=>{const st=SS[s],pg=ps[s],pct=pg.total>0?Math.min(100,Math.round(pg.done/pg.total*100)):0;return(<div key={s} style={{background:st.soft,borderRadius:10,padding:"7px 10px",border:`1px solid ${st.ac}22`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}><span style={{fontSize:10,fontWeight:"700",color:st.ac}}>{s}</span><span style={{fontSize:12,fontWeight:"800",color:st.ac}}>{pg.done}<span style={{fontSize:9}}>p</span>/{pg.total||"—"}<span style={{fontSize:9}}>p</span></span></div><div style={{background:`${st.ac}22`,borderRadius:4,height:4,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:st.ac,borderRadius:4,transition:"width .6s"}}/></div></div>);})}</div><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}><span style={{fontSize:11,fontWeight:"700",color:"#7B8DB0"}}>タスク</span><button onClick={()=>setShowForm(!showForm)} style={{padding:"3px 10px",borderRadius:7,border:"none",background:"linear-gradient(135deg,#7BA7F7,#A78BF7)",color:"#fff",fontWeight:"700",fontSize:10,cursor:"pointer"}}>＋ 追加</button></div>{showForm&&(<div style={{background:"#F7F9FC",borderRadius:10,padding:"10px",border:"1px solid #E4E8F0",display:"flex",flexDirection:"column",gap:7,flexShrink:0}}><input placeholder="タスク名" value={nt.title} onChange={e=>setNt({...nt,title:e.target.value})} style={{background:"#fff",border:"1.5px solid #E4E8F0",borderRadius:7,padding:"5px 9px",color:"#2A3550",fontSize:11,outline:"none",width:"100%"}}/><div style={{display:"flex",gap:6}}><select value={nt.stage} onChange={e=>setNt({...nt,stage:e.target.value})} style={{flex:1,background:"#fff",border:"1.5px solid #E4E8F0",borderRadius:7,padding:"5px 7px",color:"#2A3550",fontSize:11}}>{PS.map(s=><option key={s} value={s}>{s}</option>)}</select><input type="number" placeholder="P数" value={nt.pages} onChange={e=>setNt({...nt,pages:e.target.value})} style={{width:60,background:"#fff",border:"1.5px solid #E4E8F0",borderRadius:7,padding:"5px 7px",color:"#2A3550",fontSize:11}}/></div><div style={{display:"flex",gap:5}}><button onClick={add} style={{flex:1,padding:"6px",borderRadius:7,border:"none",background:"linear-gradient(135deg,#7BA7F7,#A78BF7)",color:"#fff",fontWeight:"700",fontSize:11,cursor:"pointer"}}>追加</button><button onClick={()=>setShowForm(false)} style={{flex:1,padding:"6px",borderRadius:7,border:"1px solid #E4E8F0",background:"transparent",color:"#8899B8",fontSize:11,cursor:"pointer"}}>×</button></div></div>)}<div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:5}}>{tasks.length===0&&<div style={{color:"#C0C8D8",fontSize:11,textAlign:"center",paddingTop:16}}>タスクを追加しよう！</div>}{tasks.map(task=>{const st=SS[task.stage]||{ac:"#7BA7F7"};return(<div key={task.id} style={{background:"#fff",border:`1px solid ${task.status==="完了"?"#DDEEDD":"#EDF0F7"}`,borderRadius:9,padding:"7px 10px",opacity:task.status==="完了"?.75:1}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}><div style={{flex:1,minWidth:0}}><div style={{fontSize:11,fontWeight:"600",color:"#2A3550",textDecoration:task.status==="完了"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.title}</div><div style={{display:"flex",gap:5,marginTop:3}}><span style={{fontSize:9,color:st.ac,background:`${st.ac}18`,padding:"1px 5px",borderRadius:4}}>{task.stage}</span>{task.pages>0&&<span style={{fontSize:9,color:"#A0AABF"}}>{task.pages}p</span>}</div></div><div style={{display:"flex",gap:4,alignItems:"center",flexShrink:0}}><select value={task.status} onChange={e=>onUpdateStatus(task.id,e.target.value)} style={{background:"#F7F9FC",border:`1px solid ${SC[task.status]}55`,borderRadius:6,padding:"2px 5px",color:SC[task.status],fontSize:10,cursor:"pointer",fontWeight:"600",outline:"none"}}>{SO.map(s=><option key={s} value={s}>{s}</option>)}</select><button onClick={()=>onDeleteTask(task.id)} style={{background:"none",border:"none",color:"#C8D0E0",cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>×</button></div></div></div>);})}</div></div>);}
+/* ════════════════════════════════
+原稿マンション
+════════════════════════════════ */
+function MansionGrid({panels,onUpdate}){
+const items=panels[“原稿”]||[];
+const fileRef=useRef(null);
+const[hover,setHover]=useState(null);
 
-function PanelGrid({cat,panels,onUpdate}){
-const items=panels[cat]||[];const[editIdx,setEditIdx]=useState(null);const[editText,setEditText]=useState("");const[showAdd,setShowAdd]=useState(false);const[addText,setAddText]=useState("");const[addSt,setAddSt]=useState("未着手");
-const addItem=()=>{if(!addText.trim())return;onUpdate({...panels,[cat]:[...items,{text:addText.trim(),status:addSt}]});setAddText("");setAddSt("未着手");setShowAdd(false);};
-const updItem=(idx,patch)=>{const arr=[...items];arr[idx]={...arr[idx],...patch};onUpdate({...panels,[cat]:arr});};
-const remItem=idx=>onUpdate({...panels,[cat]:items.filter((_,i)=>i!==idx)});
-const cols=Math.min(3,Math.max(2,items.length+1));
-return(<div style={{height:"100%",display:"flex",flexDirection:"column",gap:6}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}><span style={{fontSize:11,fontWeight:"700",color:"#7B8DB0"}}>{cat}</span><button onClick={()=>setShowAdd(!showAdd)} style={{padding:"2px 9px",borderRadius:6,border:"none",background:"linear-gradient(135deg,#7BA7F7,#A78BF7)",color:"#fff",fontWeight:"700",fontSize:10,cursor:"pointer"}}>＋</button></div>{showAdd&&(<div style={{background:"#F7F9FC",borderRadius:9,padding:"8px",border:"1px solid #E4E8F0",display:"flex",flexDirection:"column",gap:5,flexShrink:0}}><input placeholder="タイトル/メモ" value={addText} onChange={e=>setAddText(e.target.value)} style={{background:"#fff",border:"1.5px solid #E4E8F0",borderRadius:7,padding:"5px 8px",color:"#2A3550",fontSize:11,outline:"none",width:"100%"}}/><div style={{display:"flex",gap:5}}><select value={addSt} onChange={e=>setAddSt(e.target.value)} style={{flex:1,background:"#fff",border:"1.5px solid #E4E8F0",borderRadius:7,padding:"4px 6px",color:"#2A3550",fontSize:11}}>{SPO.map(s=><option key={s} value={s}>{s}</option>)}</select><button onClick={addItem} style={{padding:"4px 10px",borderRadius:7,border:"none",background:"linear-gradient(135deg,#7BA7F7,#A78BF7)",color:"#fff",fontWeight:"700",fontSize:10,cursor:"pointer"}}>追加</button><button onClick={()=>setShowAdd(false)} style={{padding:"4px 8px",borderRadius:7,border:"1px solid #E4E8F0",background:"transparent",color:"#8899B8",fontSize:10,cursor:"pointer"}}>×</button></div></div>)}<div style={{flex:1,overflowY:"auto",display:"grid",gridTemplateColumns:`repeat(${cols},1fr)`,gap:6,alignContent:"start"}}>{items.map((item,idx)=>(<div key={idx} style={{background:SPB[item.status]||"#F0F4FA",border:`1.5px solid ${SPD[item.status]||"#D0D8EC"}`,borderRadius:10,padding:"8px 7px",display:"flex",flexDirection:"column",gap:4,minHeight:60,position:"relative"}}>{editIdx===idx?(<><input value={editText} onChange={e=>setEditText(e.target.value)} autoFocus style={{background:"#fff",border:"1px solid #C0CADC",borderRadius:5,padding:"3px 5px",fontSize:10,color:"#2A3550",outline:"none",width:"100%"}}/><div style={{display:"flex",gap:3}}><button onClick={()=>{updItem(idx,{text:editText});setEditIdx(null);}} style={{flex:1,padding:"3px",borderRadius:5,border:"none",background:"#7BA7F7",color:"#fff",fontSize:9,cursor:"pointer"}}>OK</button><button onClick={()=>setEditIdx(null)} style={{flex:1,padding:"3px",borderRadius:5,border:"1px solid #E0E4EC",background:"transparent",color:"#8899B8",fontSize:9,cursor:"pointer"}}>×</button></div></>):(<><div style={{fontSize:11,fontWeight:"600",color:"#2A3550",lineHeight:1.4,wordBreak:"break-all"}} onDoubleClick={()=>{setEditIdx(idx);setEditText(item.text);}}>{item.text||"無題"}</div><div style={{marginTop:"auto",display:"flex",justifyContent:"space-between",alignItems:"center"}}><select value={item.status} onChange={e=>updItem(idx,{status:e.target.value})} onClick={e=>e.stopPropagation()} style={{background:"transparent",border:"none",color:SPT[item.status]||"#7B8DB0",fontSize:9,cursor:"pointer",fontWeight:"700",padding:0,outline:"none"}}>{SPO.map(s=><option key={s} value={s}>{s}</option>)}</select><button onClick={e=>{e.stopPropagation();remItem(idx);}} style={{background:"none",border:"none",color:"#C8D0E0",cursor:"pointer",fontSize:11,lineHeight:1,padding:0}}>×</button></div></>)}</div>))}{items.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",color:"#C0C8D8",fontSize:11,padding:"16px 0"}}>＋ を押して追加</div>}</div></div>);}
-
-function App(){
-const[data,setData]=useState(()=>{try{const r=localStorage.getItem(SK);return r?{...DD,...JSON.parse(r)}:DD;}catch{return DD;}});
-const[lc,setLc]=useState("プロット/ネーム");const[rt,setRt]=useState("カレンダー");const[ep,setEp]=useState(false);const[pf,setPf]=useState(data.project);
-const save=d=>{setData(d);try{localStorage.setItem(SK,JSON.stringify(d));}catch{}};
-const dl=gdl(data.project.deadline),dc=uc(dl),dm=um(dl),ps=cps(data.tasks,data.project.totalPages);
-const sp=()=>{save({...data,project:pf});setEp(false);};
-const at=t=>save({...data,tasks:[...data.tasks,{id:data.nextTaskId,...t,status:"未着手",createdAt:new Date().toISOString()}],nextTaskId:data.nextTaskId+1});
-const us=(id,status)=>save({...data,tasks:data.tasks.map(t=>t.id===id?{...t,status}:t)});
-const dt=id=>save({...data,tasks:data.tasks.filter(t=>t.id!==id)});
-const up=panels=>save({...data,panels});
-const uc2=calendar=>save({...data,calendar});
-const RT=["カレンダー","進捗管理","アドバイス"];
-const card={background:"#fff",borderRadius:14,border:"1.5px solid #EDF0F7",boxShadow:"0 2px 12px rgba(100,120,200,0.06)"};
-return(<div style={{height:"100%",background:"#F2F5FA",display:"flex",flexDirection:"column",overflow:"hidden"}}>
-<div style={{background:"#fff",borderBottom:"1.5px solid #EDF0F7",padding:"0 12px",flexShrink:0,boxShadow:"0 1px 8px rgba(100,120,200,0.06)"}}>
-<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",height:50}}>
-<div style={{display:"flex",alignItems:"center",gap:7}}><div style={{width:32,height:32,borderRadius:9,background:"linear-gradient(135deg,#FFF0E8,#F0E8FF)",border:"1.5px solid #EAD8FF",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>✏️</div><div><div style={{fontSize:13,fontWeight:"800",background:"linear-gradient(90deg,#F4A04A,#A04AF4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>同人コーチ</div><div style={{fontSize:9,color:"#C0C8D8"}}>Doujin Production Manager</div></div></div>
-<div style={{textAlign:"center",flex:1,padding:"0 8px"}}>{ep?(<div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",justifyContent:"center"}}><input value={pf.title} onChange={e=>setPf({...pf,title:e.target.value})} placeholder="タイトル" style={{background:"#F7F9FC",border:"1.5px solid #E4E8F0",borderRadius:8,padding:"4px 8px",color:"#2A3550",fontSize:12,outline:"none",width:90}}/><input value={pf.event} onChange={e=>setPf({...pf,event:e.target.value})} placeholder="イベント" style={{background:"#F7F9FC",border:"1.5px solid #E4E8F0",borderRadius:8,padding:"4px 8px",color:"#2A3550",fontSize:12,outline:"none",width:80}}/><input type="date" value={pf.deadline} onChange={e=>setPf({...pf,deadline:e.target.value})} style={{background:"#F7F9FC",border:"1.5px solid #E4E8F0",borderRadius:8,padding:"4px 6px",color:"#2A3550",fontSize:11,outline:"none"}}/><input type="number" value={pf.totalPages} onChange={e=>setPf({...pf,totalPages:e.target.value})} placeholder="総P" style={{background:"#F7F9FC",border:"1.5px solid #E4E8F0",borderRadius:8,padding:"4px 6px",color:"#2A3550",fontSize:12,outline:"none",width:50}}/><button onClick={sp} style={{padding:"5px 10px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#7BA7F7,#A78BF7)",color:"#fff",fontWeight:"700",fontSize:12,cursor:"pointer"}}>保存</button><button onClick={()=>setEp(false)} style={{padding:"5px 8px",borderRadius:8,border:"1.5px solid #E4E8F0",background:"transparent",color:"#8899B8",fontSize:12,cursor:"pointer"}}>×</button></div>):(<div style={{cursor:"pointer"}} onClick={()=>{setPf(data.project);setEp(true);}}><div style={{fontSize:13,fontWeight:"800",color:"#2A3550"}}>{data.project.title||"プロジェクト名"}</div><div style={{fontSize:9,color:"#A0AABF"}}>{data.project.event||"イベント未設定"} — タップして編集</div></div>)}</div>
-<div style={{display:"flex",alignItems:"center",gap:6}}><div style={{textAlign:"right"}}><div style={{fontSize:9,color:"#A0AABF"}}>現在の進捗</div><div style={{fontSize:13,fontWeight:"900",color:"#5A7EF4",fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}}>{ps["全体"].done}<span style={{fontSize:9,color:"#9AAEDD"}}>p</span><span style={{fontSize:11,color:"#C8D4EE",margin:"0 2px"}}>/</span>{ps["全体"].total||"—"}<span style={{fontSize:9,color:"#9AAEDD"}}>p</span></div></div><div style={{background:dl!==null&&dl<7?"#FFF2F2":"#F2F8FF",border:`1.5px solid ${dc}30`,borderRadius:10,padding:"4px 8px",textAlign:"center",minWidth:52}}>{data.project.deadline?(<><div style={{fontSize:10,fontWeight:"800",color:dc,whiteSpace:"nowrap"}}>{dl!==null&&dl>=0?`残り${dl}日`:dl===null?"未設定":"期限切れ"}</div><div style={{fontSize:8,color:"#A0AABF"}}>{data.project.deadline}</div></>):(<div style={{fontSize:9,color:"#B0BACC",cursor:"pointer"}} onClick={()=>{setPf(data.project);setEp(true);}}>〆切<br/>未設定</div>)}</div></div>
-</div></div>
-<div style={{background:`linear-gradient(135deg,${dc}15,${dc}06)`,borderBottom:`1px solid ${dc}25`,padding:"4px 12px",flexShrink:0}}><span style={{fontSize:11,fontWeight:"700",color:dc}}>{dm}</span></div>
-<div style={{flex:1,display:"flex",gap:8,padding:"8px 10px",minHeight:0,overflow:"hidden"}}>
-<div style={{...card,display:"flex",flexDirection:"column",width:"42%",minWidth:0,overflow:"hidden"}}>
-<div style={{display:"flex",borderBottom:"1.5px solid #EDF0F7",padding:"0 6px",flexShrink:0}}>{LC.map(cat=>(<button key={cat} onClick={()=>setLc(cat)} style={{padding:"7px 7px",border:"none",borderRadius:"6px 6px 0 0",cursor:"pointer",fontSize:10,background:lc===cat?"#F2F5FA":"transparent",color:lc===cat?"#7B5CF4":"#A0AABF",fontWeight:lc===cat?"700":"400",borderBottom:lc===cat?"2px solid #A04AF4":"2px solid transparent",whiteSpace:"nowrap"}}>{cat}</button>))}</div>
-<div style={{flex:1,padding:"8px",overflow:"hidden",display:"flex",flexDirection:"column"}}><PanelGrid cat={lc} panels={data.panels} onUpdate={up}/></div>
-</div>
-<div style={{...card,display:"flex",flexDirection:"column",flex:1,minWidth:0,overflow:"hidden"}}>
-<div style={{padding:"8px 12px 0",flexShrink:0}}>
-<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}><div style={{fontSize:10,color:"#A0AABF"}}>〆切: <span style={{fontWeight:"700",color:dc}}>{data.project.deadline||"未設定"}</span></div><div style={{display:"flex",gap:3}}>{PS.map(s=>{const st=SS[s],pg=ps[s];return(<div key={s} style={{background:st.soft,borderRadius:7,padding:"2px 6px",border:`1px solid ${st.ac}30`,textAlign:"center"}}><div style={{fontSize:8,fontWeight:"700",color:st.ac}}>{s}</div><div style={{fontSize:10,fontWeight:"800",color:st.ac,fontVariantNumeric:"tabular-nums"}}>{pg.done}<span style={{fontSize:7}}>p</span>/{pg.total||"—"}<span style={{fontSize:7}}>p</span></div></div>);})}</div></div>
-<div style={{display:"flex",gap:3}}>{RT.map(t=>(<button key={t} onClick={()=>setRt(t)} style={{padding:"5px 11px",border:"none",borderRadius:"6px 6px 0 0",cursor:"pointer",fontSize:11,background:rt===t?"#F2F5FA":"transparent",color:rt===t?"#7B5CF4":"#A0AABF",fontWeight:rt===t?"700":"400",borderBottom:rt===t?"2px solid #A04AF4":"2px solid transparent"}}>{t}</button>))}</div>
-</div>
-<div style={{borderTop:"1.5px solid #EDF0F7",flex:1,padding:"10px 12px",overflow:"hidden",display:"flex",flexDirection:"column"}}>
-{rt==="カレンダー"&&<MiniCalendar calendar={data.calendar} onUpdate={uc2} deadline={data.project.deadline}/>}
-{rt==="進捗管理"&&<ProgressPane tasks={data.tasks} totalPages={data.project.totalPages} onAddTask={at} onUpdateStatus={us} onDeleteTask={dt}/>}
-{rt==="アドバイス"&&<Advisor project={data.project} tasks={data.tasks}/>}
-</div>
-</div>
-</div>
-</div>);
+const handleFiles=async(files)=>{
+const newItems=[…items];
+for(const f of Array.from(files)){
+if(!f.type.startsWith(“image/”))continue;
+const b64=await fileToB64(f);
+newItems.push({id:Date.now()+Math.random(),name:f.name,src:b64,status:“未着手”,note:””});
 }
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+onUpdate({…panels,“原稿”:newItems});
+};
+const onDrop=e=>{e.preventDefault();handleFiles(e.dataTransfer.files);};
+const onDragOver=e=>e.preventDefault();
+const updateItem=(idx,patch)=>{const arr=[…items];arr[idx]={…arr[idx],…patch};onUpdate({…panels,“原稿”:arr});};
+const removeItem=idx=>onUpdate({…panels,“原稿”:items.filter((_,i)=>i!==idx)});
+
+// Group into floors of 4
+const floors=[];
+for(let i=0;i<items.length;i+=4)floors.push(items.slice(i,i+4));
+
+const statusColor={“未着手”:”#B0BAD0”,“作業中”:”#F4A04A”,“完了”:”#48B06A”,“保留”:”#C890EC”};
+
+return(
+<div style={{height:“100%”,display:“flex”,flexDirection:“column”,gap:8}}>
+{/* Drop zone */}
+<div onDrop={onDrop} onDragOver={onDragOver} onClick={()=>fileRef.current.click()}
+style={{border:“2px dashed #C8D4E8”,borderRadius:12,padding:“10px”,textAlign:“center”,cursor:“pointer”,background:”#F7F9FC”,flexShrink:0,transition:“border-color .2s”}}
+onMouseEnter={e=>e.currentTarget.style.borderColor=”#A78BF7”}
+onMouseLeave={e=>e.currentTarget.style.borderColor=”#C8D4E8”}>
+<div style={{fontSize:18,marginBottom:2}}>📁</div>
+<div style={{fontSize:11,color:”#A0AABF”}}>原稿画像をタップ/ドロップして追加</div>
+<input ref={fileRef} type=“file” accept=“image/*” multiple style={{display:“none”}} onChange={e=>handleFiles(e.target.files)}/>
+</div>
+
+```
+  {/* Mansion */}
+  <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column-reverse",gap:4}}>
+    {floors.length===0&&(
+      <div style={{textAlign:"center",color:"#C0C8D8",fontSize:11,paddingTop:20}}>
+        🏢 原稿をアップロードすると<br/>マンションが建ちます！
+      </div>
+    )}
+    {floors.map((floor,fi)=>(
+      <div key={fi} style={{display:"flex",gap:3,alignItems:"stretch"}}>
+        {/* Floor label */}
+        <div style={{width:20,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          <div style={{fontSize:9,fontWeight:"700",color:"#A0AABF",transform:"rotate(-90deg)",whiteSpace:"nowrap"}}>{floors.length-fi}F</div>
+        </div>
+        {/* Floor rooms */}
+        <div style={{flex:1,display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:3,background:"#E8EEF8",borderRadius:8,padding:4,border:"1px solid #D8E0F0"}}>
+          {floor.map((item,ri)=>{
+            const globalIdx=fi*4+ri;
+            return(
+              <div key={item.id||ri}
+                style={{position:"relative",borderRadius:6,overflow:"hidden",background:"#fff",border:`2px solid ${statusColor[item.status]||"#D0D8EC"}`,cursor:"pointer",aspectRatio:"0.7"}}
+                onMouseEnter={()=>setHover(globalIdx)} onMouseLeave={()=>setHover(null)}>
+                {item.src?(
+                  <img src={item.src} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                ):(
+                  <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>📄</div>
+                )}
+                {/* Status dot */}
+                <div style={{position:"absolute",top:2,right:2,width:8,height:8,borderRadius:"50%",background:statusColor[item.status]||"#D0D8EC",border:"1px solid #fff"}}/>
+                {/* Hover overlay */}
+                {hover===globalIdx&&(
+                  <div style={{position:"absolute",inset:0,background:"rgba(42,53,80,0.85)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:4}}>
+                    <div style={{fontSize:8,color:"#fff",textAlign:"center",lineHeight:1.3,wordBreak:"break-all"}}>{item.name||"原稿"}</div>
+                    <select value={item.status} onChange={e=>{e.stopPropagation();updateItem(globalIdx,{status:e.target.value});}}
+                      style={{fontSize:8,background:"#fff",border:"none",borderRadius:4,padding:"1px 3px",color:statusColor[item.status],fontWeight:"700",width:"100%",cursor:"pointer"}}>
+                      {SPO.map(s=><option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <button onClick={e=>{e.stopPropagation();removeItem(globalIdx);}}
+                      style={{fontSize:9,background:"#E84545",border:"none",borderRadius:4,color:"#fff",padding:"1px 6px",cursor:"pointer",width:"100%"}}>削除</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {/* Empty rooms to fill floor */}
+          {Array.from({length:4-floor.length}).map((_,i)=>(
+            <div key={"empty"+i} style={{borderRadius:6,background:"#F0F4FA",border:"1px dashed #D0D8EC",aspectRatio:"0.7",opacity:.4}}/>
+          ))}
+        </div>
+      </div>
+    ))}
+    {/* Ground floor label */}
+    {floors.length>0&&(
+      <div style={{textAlign:"center",fontSize:9,color:"#A0AABF",paddingTop:2}}>🏠 1F〜{floors.length}F</div>
+    )}
+  </div>
+</div>
+```
+
+);
+}
+
+/* ════════════════════════════════
+グッズ/ノベルティ
+════════════════════════════════ */
+function GoodsGrid({panels,onUpdate}){
+const items=panels[“グッズ/ノベルティ”]||[];
+const fileRef=useRef(null);
+const[hover,setHover]=useState(null);
+const[showAdd,setShowAdd]=useState(false);
+const[addText,setAddText]=useState(””);
+const[addSt,setAddSt]=useState(“未着手”);
+
+const handleFiles=async(files)=>{
+const newItems=[…items];
+for(const f of Array.from(files)){
+if(!f.type.startsWith(“image/”))continue;
+const b64=await fileToB64(f);
+newItems.push({id:Date.now()+Math.random(),name:f.name,src:b64,status:“未着手”,type:“image”});
+}
+onUpdate({…panels,“グッズ/ノベルティ”:newItems});
+};
+const addText2=()=>{
+if(!addText.trim())return;
+const newItems=[…items,{id:Date.now(),name:addText.trim(),src:null,status:addSt,type:“text”}];
+onUpdate({…panels,“グッズ/ノベルティ”:newItems});
+setAddText(””);setAddSt(“未着手”);setShowAdd(false);
+};
+const updateItem=(idx,patch)=>{const arr=[…items];arr[idx]={…arr[idx],…patch};onUpdate({…panels,“グッズ/ノベルティ”:arr});};
+const removeItem=idx=>onUpdate({…panels,“グッズ/ノベルティ”:items.filter((_,i)=>i!==idx)});
+const statusColor={“未着手”:”#B0BAD0”,“作業中”:”#F4A04A”,“完了”:”#48B06A”,“保留”:”#C890EC”};
+const cols=Math.min(3,Math.max(2,items.length+1));
+
+return(
+<div style={{height:“100%”,display:“flex”,flexDirection:“column”,gap:8}}>
+<div style={{display:“flex”,gap:5,flexShrink:0}}>
+<div onClick={()=>fileRef.current.click()} style={{flex:1,border:“2px dashed #C8D4E8”,borderRadius:10,padding:“7px”,textAlign:“center”,cursor:“pointer”,background:”#F7F9FC”,fontSize:11,color:”#A0AABF”}}
+onMouseEnter={e=>e.currentTarget.style.borderColor=”#A78BF7”} onMouseLeave={e=>e.currentTarget.style.borderColor=”#C8D4E8”}>
+📎 画像追加
+<input ref={fileRef} type=“file” accept=“image/*” multiple style={{display:“none”}} onChange={e=>handleFiles(e.target.files)}/>
+</div>
+<button onClick={()=>setShowAdd(!showAdd)} style={{flex:1,padding:“7px”,borderRadius:10,border:“none”,background:“linear-gradient(135deg,#7BA7F7,#A78BF7)”,color:”#fff”,fontWeight:“700”,fontSize:11,cursor:“pointer”}}>＋ テキスト</button>
+</div>
+{showAdd&&(
+<div style={{background:”#F7F9FC”,borderRadius:10,padding:“8px”,border:“1px solid #E4E8F0”,display:“flex”,flexDirection:“column”,gap:6,flexShrink:0}}>
+<input placeholder=“グッズ名（例: アクリルスタンド）” value={addText} onChange={e=>setAddText(e.target.value)} style={{background:”#fff”,border:“1.5px solid #E4E8F0”,borderRadius:7,padding:“5px 8px”,color:”#2A3550”,fontSize:11,outline:“none”,width:“100%”}}/>
+<div style={{display:“flex”,gap:5}}>
+<select value={addSt} onChange={e=>setAddSt(e.target.value)} style={{flex:1,background:”#fff”,border:“1.5px solid #E4E8F0”,borderRadius:7,padding:“4px 6px”,color:”#2A3550”,fontSize:11}}>
+{SPO.map(s=><option key={s} value={s}>{s}</option>)}
+</select>
+<button onClick={addText2} style={{padding:“4px 12px”,borderRadius:7,border:“none”,background:“linear-gradient(135deg,#7BA7F7,#A78BF7)”,color:”#fff”,fontWeight:“700”,fontSize:10,cursor:“pointer”}}>追加</button>
+<button onClick={()=>setShowAdd(false)} style={{padding:“4px 8px”,borderRadius:7,border:“1px solid #E4E8F0”,background:“transparent”,color:”#8899B8”,fontSize:10,cursor:“pointer”}}>×</button>
+</div>
+</div>
+)}
+<div style={{flex:1,overflowY:“auto”,display:“grid”,gridTemplateColumns:`repeat(${cols},1fr)`,gap:6,alignContent:“start”}}>
+{items.map((item,idx)=>(
+<div key={item.id||idx} style={{position:“relative”,borderRadius:10,overflow:“hidden”,border:`2px solid ${statusColor[item.status]||"#D0D8EC"}`,background:item.src?”#000”:”#F0F4FA”,minHeight:70}}
+onMouseEnter={()=>setHover(idx)} onMouseLeave={()=>setHover(null)}>
+{item.src?(
+<img src={item.src} alt={item.name} style={{width:“100%”,height:“100%”,objectFit:“cover”,display:“block”}}/>
+):(
+<div style={{padding:“8px”,display:“flex”,flexDirection:“column”,gap:4,minHeight:70}}>
+<div style={{fontSize:11,fontWeight:“600”,color:”#2A3550”,wordBreak:“break-all”,lineHeight:1.4}}>{item.name}</div>
+<div style={{marginTop:“auto”,fontSize:9,fontWeight:“700”,color:statusColor[item.status]}}>{item.status}</div>
+</div>
+)}
+<div style={{position:“absolute”,top:3,right:3,width:8,height:8,borderRadius:“50%”,background:statusColor[item.status]||”#D0D8EC”,border:“1px solid #fff”}}/>
+{hover===idx&&(
+<div style={{position:“absolute”,inset:0,background:“rgba(42,53,80,0.88)”,display:“flex”,flexDirection:“column”,alignItems:“center”,justifyContent:“center”,gap:4,padding:6}}>
+<div style={{fontSize:9,color:”#fff”,textAlign:“center”,wordBreak:“break-all”}}>{item.name}</div>
+<select value={item.status} onChange={e=>{e.stopPropagation();updateItem(idx,{status:e.target.value});}}
+style={{fontSize:9,background:”#fff”,border:“none”,borderRadius:4,padding:“2px 4px”,color:statusColor[item.status],fontWeight:“700”,width:“100%”,cursor:“pointer”}}>
+{SPO.map(s=><option key={s} value={s}>{s}</option>)}
+</select>
+<button onClick={e=>{e.stopPropagation();removeItem(idx);}} style={{fontSize:9,background:”#E84545”,border:“none”,borderRadius:4,color:”#fff”,padding:“2px 6px”,cursor:“pointer”,width:“100%”}}>削除</button>
+</div>
+)}
+</div>
+))}
+{items.length===0&&<div style={{gridColumn:“1/-1”,textAlign:“center”,color:”#C0C8D8”,fontSize:11,padding:“20px 0”}}>グッズ・ノベルティを追加しよう！</div>}
+</div>
+</div>
+);
+}
+
+/* ════════════════════════════════
+プロット/ネーム (text cards)
+════════════════════════════════ */
+function PlotGrid({panels,onUpdate}){
+const items=panels[“プロット/ネーム”]||[];
+const[showAdd,setShowAdd]=useState(false);
+const[addText,setAddText]=useState(””);
+const[addSt,setAddSt]=useState(“未着手”);
+const[editIdx,setEditIdx]=useState(null);
+const[editText,setEditText]=useState(””);
+const addItem=()=>{if(!addText.trim())return;onUpdate({…panels,“プロット/ネーム”:[…items,{id:Date.now(),text:addText.trim(),status:addSt}]});setAddText(””);setAddSt(“未着手”);setShowAdd(false);};
+const updItem=(idx,patch)=>{const arr=[…items];arr[idx]={…arr[idx],…patch};onUpdate({…panels,“プロット/ネーム”:arr});};
+const remItem=idx=>onUpdate({…panels,“プロット/ネーム”:items.filter((_,i)=>i!==idx)});
+const cols=Math.min(3,Math.max(2,items.length+1));
+return(
+<div style={{height:“100%”,display:“flex”,flexDirection:“column”,gap:6}}>
+<div style={{display:“flex”,justifyContent:“space-between”,alignItems:“center”,flexShrink:0}}>
+<span style={{fontSize:11,fontWeight:“700”,color:”#7B8DB0”}}>プロット/ネーム</span>
+<button onClick={()=>setShowAdd(!showAdd)} style={{padding:“2px 9px”,borderRadius:6,border:“none”,background:“linear-gradient(135deg,#7BA7F7,#A78BF7)”,color:”#fff”,fontWeight:“700”,fontSize:10,cursor:“pointer”}}>＋</button>
+</div>
+{showAdd&&(
+<div style={{background:”#F7F9FC”,borderRadius:9,padding:“8px”,border:“1px solid #E4E8F0”,display:“flex”,flexDirection:“column”,gap:5,flexShrink:0}}>
+<input placeholder=“タイトル/メモ” value={addText} onChange={e=>setAddText(e.target.value)} style={{background:”#fff”,border:“1.5px solid #E4E8F0”,borderRadius:7,padding:“5px 8px”,color:”#2A3550”,fontSize:11,outline:“none”,width:“100%”}}/>
+<div style={{display:“flex”,gap:5}}>
+<select value={addSt} onChange={e=>setAddSt(e.target.value)} style={{flex:1,background:”#fff”,border:“1.5px solid #E4E8F0”,borderRadius:7,padding:“4px 6px”,color:”#2A3550”,fontSize:11}}>
+{SPO.map(s=><option key={s} value={s}>{s}</option>)}
+</select>
+<button onClick={addItem} style={{padding:“4px 10px”,borderRadius:7,border:“none”,background:“linear-gradient(135deg,#7BA7F7,#A78BF7)”,color:”#fff”,fontWeight:“700”,fontSize:10,cursor:“pointer”}}>追加</button>
+<button onClick={()=>setShowAdd(false)} style={{padding:“4px 8px”,borderRadius:7,border:“1px solid #E4E8F0”,background:“transparent”,color:”#8899B8”,fontSize:10,cursor:“pointer”}}>×</button>
+</div>
+</div>
+)}
+<div style={{flex:1,overflowY:“auto”,display:“grid”,gridTemplateColumns:`repeat(${cols},1fr)`,gap:6,alignContent:“start”}}>
+{items.map((item,idx)=>(
+<div key={item.id||idx} style={{background:SPB[item.status]||”#F0F4FA”,border:`1.5px solid ${SPD[item.status]||"#D0D8EC"}`,borderRadius:10,padding:“8px 7px”,display:“flex”,flexDirection:“column”,gap:4,minHeight:60}}>
+{editIdx===idx?(
+<>
+<input value={editText} onChange={e=>setEditText(e.target.value)} autoFocus style={{background:”#fff”,border:“1px solid #C0CADC”,borderRadius:5,padding:“3px 5px”,fontSize:10,color:”#2A3550”,outline:“none”,width:“100%”}}/>
+<div style={{display:“flex”,gap:3}}>
+<button onClick={()=>{updItem(idx,{text:editText});setEditIdx(null);}} style={{flex:1,padding:“3px”,borderRadius:5,border:“none”,background:”#7BA7F7”,color:”#fff”,fontSize:9,cursor:“pointer”}}>OK</button>
+<button onClick={()=>setEditIdx(null)} style={{flex:1,padding:“3px”,borderRadius:5,border:“1px solid #E0E4EC”,background:“transparent”,color:”#8899B8”,fontSize:9,cursor:“pointer”}}>×</button>
+</div>
+</>
+):(
+<>
+<div style={{fontSize:11,fontWeight:“600”,color:”#2A3550”,lineHeight:1.4,wordBreak:“break-all”}} onDoubleClick={()=>{setEditIdx(idx);setEditText(item.text);}}>{item.text||“無題”}</div>
+<div style={{marginTop:“auto”,display:“flex”,justifyContent:“space-between”,alignItems:“center”}}>
+<select value={item.status} onChange={e=>updItem(idx,{status:e.target.value})} onClick={e=>e.stopPropagation()} style={{background:“transparent”,border:“none”,color:SPT[item.status]||”#7B8DB0”,fontSize:9,cursor:“pointer”,fontWeight:“700”,padding:0,outline:“none”}}>
+{SPO.map(s=><option key={s} value={s}>{s}</option>)}
+</select>
+<button onClick={e=>{e.stopPropagation();remItem(idx);}} style={{background:“none”,border:“none”,color:”#C8D0E0”,cursor:“pointer”,fontSize:11,lineHeight:1,padding:0}}>×</button>
+</div>
+</>
+)}
+</div>
+))}
+{items.length===0&&<div style={{gridColumn:“1/-1”,textAlign:“center”,color:”#C0C8D8”,fontSize:11,padding:“16px 0”}}>＋ を押して追加</div>}
+</div>
+</div>
+);
+}
+
+/* ════════════════════════════════
+進捗管理（目標設定 + 本日の進捗）
+════════════════════════════════ */
+function ProgressPane({data,save}){
+const{tasks,goals,dailyLog,project}=data;
+const ps=cps(tasks,project.totalPages);
+const[showTaskForm,setShowTaskForm]=useState(false);
+const[nt,setNt]=useState({title:””,stage:“ネーム”,pages:””});
+const[showGoal,setShowGoal]=useState(false);
+const[goalForm,setGoalForm]=useState(goals||{dailyPages:0,targetStage:“仕上げ”});
+const[todayPages,setTodayPages]=useState(””);
+const[todayStage,setTodayStage]=useState(“仕上げ”);
+const[todayNote,setTodayNote]=useState(””);
+
+const today=todayYmd();
+const todayTotal=dailyLog.filter(l=>l.date===today).reduce((a,l)=>a+(Number(l.pages)||0),0);
+const dailyGoal=Number(goals?.dailyPages)||0;
+const goalPct=dailyGoal>0?Math.min(100,Math.round(todayTotal/dailyGoal*100)):0;
+
+const addTask=t=>{save({…data,tasks:[…tasks,{id:data.nextTaskId,…t,status:“未着手”,createdAt:new Date().toISOString()}],nextTaskId:data.nextTaskId+1});};
+const updateStatus=(id,status)=>save({…data,tasks:tasks.map(t=>t.id===id?{…t,status}:t)});
+const deleteTask=id=>save({…data,tasks:tasks.filter(t=>t.id!==id)});
+const saveGoal=()=>{save({…data,goals:goalForm});setShowGoal(false);};
+
+// Submit today’s progress → update tasks + auto-create next task
+const submitToday=()=>{
+const pages=Number(todayPages);if(!pages)return;
+// Log it
+const newLog=[…(dailyLog||[]),{date:today,pages,stage:todayStage,note:todayNote}];
+// Find current working task in this stage, mark pages
+let newTasks=[…tasks];
+let remaining=pages;
+// Try to complete tasks greedily
+for(let i=0;i<newTasks.length&&remaining>0;i++){
+const t=newTasks[i];
+if(t.stage===todayStage&&t.status!==“完了”){
+const needed=(t.pages||0)-(t.donePages||0);
+if(remaining>=needed){remaining-=needed;newTasks[i]={…t,donePages:t.pages||0,status:“完了”};}
+else{newTasks[i]={…t,donePages:(t.donePages||0)+remaining,status:“作業中”};remaining=0;}
+}
+}
+// Auto-create next task if all tasks in stage done
+const stageRemaining=newTasks.filter(t=>t.stage===todayStage&&t.status!==“完了”);
+let nextTaskId=data.nextTaskId;
+if(stageRemaining.length===0&&todayStage!==“仕上げ”){
+const nextStageIdx=PS.indexOf(todayStage)+1;
+if(nextStageIdx<PS.length){
+const nextStage=PS[nextStageIdx];
+const newTask={id:nextTaskId,title:`${nextStage}作業（自動生成）`,stage:nextStage,pages:project.totalPages||0,status:“未着手”,createdAt:new Date().toISOString(),auto:true};
+newTasks=[…newTasks,newTask];nextTaskId++;
+}
+}
+save({…data,tasks:newTasks,dailyLog:newLog,nextTaskId});
+setTodayPages(””);setTodayNote(””);
+};
+
+return(
+<div style={{display:“flex”,flexDirection:“column”,gap:8,height:“100%”,minHeight:0,overflowY:“auto”}}>
+
+```
+  {/* 🎯 目標設定 */}
+  <div style={{background:"linear-gradient(135deg,#F8F0FF,#F0F5FF)",border:"1.5px solid #D8C8F8",borderRadius:12,padding:"10px 12px",flexShrink:0}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:showGoal?8:0}}>
+      <span style={{fontSize:12,fontWeight:"700",color:"#7B5CF4"}}>🎯 目標設定</span>
+      <button onClick={()=>setShowGoal(!showGoal)} style={{padding:"2px 10px",borderRadius:7,border:"none",background:"#A78BF7",color:"#fff",fontWeight:"700",fontSize:10,cursor:"pointer"}}>{showGoal?"閉じる":"編集"}</button>
+    </div>
+    {showGoal?(
+      <div style={{display:"flex",flexDirection:"column",gap:7}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <label style={{fontSize:11,color:"#7B8DB0",width:90,flexShrink:0}}>1日の目標ページ数</label>
+          <input type="number" value={goalForm.dailyPages} onChange={e=>setGoalForm({...goalForm,dailyPages:e.target.value})} placeholder="例: 4" style={{width:70,background:"#fff",border:"1.5px solid #E4E8F0",borderRadius:8,padding:"5px 8px",color:"#2A3550",fontSize:12,outline:"none"}}/>
+          <span style={{fontSize:11,color:"#A0AABF"}}>p/日</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <label style={{fontSize:11,color:"#7B8DB0",width:90,flexShrink:0}}>目標ステージ</label>
+          <select value={goalForm.targetStage} onChange={e=>setGoalForm({...goalForm,targetStage:e.target.value})} style={{flex:1,background:"#fff",border:"1.5px solid #E4E8F0",borderRadius:8,padding:"5px 8px",color:"#2A3550",fontSize:11}}>
+            {PS.map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        {/* Estimate */}
+        {Number(goalForm.dailyPages)>0&&project.totalPages>0&&(
+          <div style={{fontSize:11,color:"#7B5CF4",background:"#F0ECFF",borderRadius:8,padding:"5px 8px"}}>
+            💡 {project.totalPages}P ÷ {goalForm.dailyPages}p = 約{Math.ceil(project.totalPages/goalForm.dailyPages)}日で完成予定
+          </div>
+        )}
+        <button onClick={saveGoal} style={{padding:"7px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#7BA7F7,#A78BF7)",color:"#fff",fontWeight:"700",fontSize:12,cursor:"pointer"}}>保存</button>
+      </div>
+    ):(
+      <div style={{display:"flex",gap:12,marginTop:4}}>
+        <div style={{fontSize:12,color:"#5A7EF4"}}><span style={{fontWeight:"800",fontSize:16}}>{goals?.dailyPages||"—"}</span> p/日</div>
+        <div style={{fontSize:12,color:"#A04AF4"}}>目標: <span style={{fontWeight:"700"}}>{goals?.targetStage||"仕上げ"}</span></div>
+        {dailyGoal>0&&project.totalPages>0&&<div style={{fontSize:11,color:"#A0AABF"}}>残約{Math.ceil((project.totalPages-ps["全体"].done)/dailyGoal)}日</div>}
+      </div>
+    )}
+  </div>
+
+  {/* 📝 本日の進捗入力 */}
+  <div style={{background:"linear-gradient(135deg,#F0FAF4,#F0F5FF)",border:"1.5px solid #B8E0C8",borderRadius:12,padding:"10px 12px",flexShrink:0}}>
+    <div style={{fontSize:12,fontWeight:"700",color:"#48B06A",marginBottom:8}}>📝 本日の進捗を入力</div>
+    {/* Today meter */}
+    {dailyGoal>0&&(
+      <div style={{marginBottom:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+          <span style={{fontSize:10,color:"#7B8DB0"}}>本日: {todayTotal}p / 目標{dailyGoal}p</span>
+          <span style={{fontSize:10,fontWeight:"700",color:"#48B06A"}}>{goalPct}%</span>
+        </div>
+        <div style={{background:"#D4EDE0",borderRadius:6,height:7,overflow:"hidden"}}>
+          <div style={{height:"100%",width:`${goalPct}%`,background:"linear-gradient(90deg,#48B06A,#7BD4A0)",borderRadius:6,transition:"width .6s"}}/>
+        </div>
+      </div>
+    )}
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      <div style={{display:"flex",gap:6}}>
+        <select value={todayStage} onChange={e=>setTodayStage(e.target.value)} style={{flex:1,background:"#fff",border:"1.5px solid #E4E8F0",borderRadius:8,padding:"6px 8px",color:"#2A3550",fontSize:11}}>
+          {PS.map(s=><option key={s} value={s}>{s}</option>)}
+        </select>
+        <input type="number" placeholder="進んだページ数" value={todayPages} onChange={e=>setTodayPages(e.target.value)} style={{width:120,background:"#fff",border:"1.5px solid #E4E8F0",borderRadius:8,padding:"6px 8px",color:"#2A3550",fontSize:11,outline:"none"}}/>
+      </div>
+      <input placeholder="メモ（任意）" value={todayNote} onChange={e=>setTodayNote(e.target.value)} style={{background:"#fff",border:"1.5px solid #E4E8F0",borderRadius:8,padding:"6px 8px",color:"#2A3550",fontSize:11,outline:"none",width:"100%"}}/>
+      <button onClick={submitToday} disabled={!todayPages} style={{padding:"8px",borderRadius:8,border:"none",background:todayPages?"linear-gradient(135deg,#48B06A,#7BD4A0)":"#EDF0F7",color:todayPages?"#fff":"#B0BACC",fontWeight:"700",fontSize:12,cursor:todayPages?"pointer":"default"}}>
+        ✅ 記録して進捗を更新
+      </button>
+    </div>
+    {/* Today's log */}
+    {(dailyLog||[]).filter(l=>l.date===today).length>0&&(
+      <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:3}}>
+        <div style={{fontSize:10,color:"#7B8DB0",fontWeight:"700"}}>本日のログ</div>
+        {(dailyLog||[]).filter(l=>l.date===today).map((l,i)=>(
+          <div key={i} style={{fontSize:10,color:"#3A4A6A",background:"#fff",borderRadius:6,padding:"3px 7px",border:"1px solid #E4EDE8"}}>
+            {l.stage} +{l.pages}p {l.note&&`— ${l.note}`}
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+
+  {/* ステージ別ページ数 */}
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,flexShrink:0}}>
+    {PS.map(s=>{
+      const st=SS[s],pg=ps[s],pct=pg.total>0?Math.min(100,Math.round(pg.done/pg.total*100)):0;
+      return(
+        <div key={s} style={{background:st.soft,borderRadius:10,padding:"7px 10px",border:`1px solid ${st.ac}22`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+            <span style={{fontSize:10,fontWeight:"700",color:st.ac}}>{s}</span>
+            <span style={{fontSize:12,fontWeight:"800",color:st.ac}}>{pg.done}<span style={{fontSize:9}}>p</span>/{pg.total||"—"}<span style={{fontSize:9}}>p</span></span>
+          </div>
+          <div style={{background:`${st.ac}22`,borderRadius:4,height:4,overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${pct}%`,background:st.ac,borderRadius:4,transition:"width .6s"}}/>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+
+  {/* タスク一覧 */}
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+    <span style={{fontSize:11,fontWeight:"700",color:"#7B8DB0"}}>タスク一覧</span>
+    <button onClick={()=>setShowTaskForm(!showTaskForm)} style={{padding:"3px 10px",borderRadius:7,border:"none",background:"linear-gradient(135deg,#7BA7F7,#A78BF7)",color:"#fff",fontWeight:"700",fontSize:10,cursor:"pointer"}}>＋ 追加</button>
+  </div>
+  {showTaskForm&&(
+    <div style={{background:"#F7F9FC",borderRadius:10,padding:"10px",border:"1px solid #E4E8F0",display:"flex",flexDirection:"column",gap:7,flexShrink:0}}>
+      <input placeholder="タスク名" value={nt.title} onChange={e=>setNt({...nt,title:e.target.value})} style={{background:"#fff",border:"1.5px solid #E4E8F0",borderRadius:7,padding:"5px 9px",color:"#2A3550",fontSize:11,outline:"none",width:"100%"}}/>
+      <div style={{display:"flex",gap:6}}>
+        <select value={nt.stage} onChange={e=>setNt({...nt,stage:e.target.value})} style={{flex:1,background:"#fff",border:"1.5px solid #E4E8F0",borderRadius:7,padding:"5px 7px",color:"#2A3550",fontSize:11}}>
+          {PS.map(s=><option key={s} value={s}>{s}</option>)}
+        </select>
+        <input type="number" placeholder="P数" value={nt.pages} onChange={e=>setNt({...nt,pages:e.target.value})} style={{width:60,background:"#fff",border:"1.5px solid #E4E8F0",borderRadius:7,padding:"5px 7px",color:"#2A3550",fontSize:11}}/>
+      </div>
+      <div style={{display:"flex",gap:5}}>
+        <button onClick={()=>{if(!nt.title.trim())return;addTask({...nt,pages:Number(nt.pages)||0});setNt({title:"",stage:"ネーム",pages:""});setShowTaskForm(false);}} style={{flex:1,padding:"6px",borderRadius:7,border:"none",background:"linear-gradient(135deg,#7BA7F7,#A78BF7)",color:"#fff",fontWeight:"700",fontSize:11,cursor:"pointer"}}>追加</button>
+        <button onClick={()=>setShowTaskForm(false)} style={{flex:1,padding:"6px",borderRadius:7,border:"1px solid #E4E8F0",background:"transparent",color:"#8899B8",fontSize:11,cursor:"pointer"}}>×</button>
+      </div>
+    </div>
+  )}
+  <div style={{display:"flex",flexDirection:"column",gap:5}}>
+    {tasks.length===0&&<div style={{color:"#C0C8D8",fontSize:11,textAlign:"center",paddingTop:8}}>タスクを追加しよう！</div>}
+    {tasks.map(task=>{
+      const st=SS[task.stage]||{ac:"#7BA7F7"};
+      return(
+        <div key={task.id} style={{background:"#fff",border:`1px solid ${task.status==="完了"?"#DDEEDD":"#EDF0F7"}`,borderRadius:9,padding:"7px 10px",opacity:task.status==="完了"?.75:1}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:4}}>
+                <div style={{fontSize:11,fontWeight:"600",color:"#2A3550",textDecoration:task.status==="完了"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.title}</div>
+                {task.auto&&<span style={{fontSize:8,background:"#E8F0FF",color:"#5A7EF4",borderRadius:4,padding:"1px 4px",flexShrink:0}}>自動</span>}
+              </div>
+              <div style={{display:"flex",gap:5,marginTop:3}}>
+                <span style={{fontSize:9,color:st.ac,background:`${st.ac}18`,padding:"1px 5px",borderRadius:4}}>{task.stage}</span>
+                {task.pages>0&&<span style={{fontSize:9,color:"#A0AABF"}}>{task.donePages||0}/{task.pages}p</span>}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:4,alignItems:"center",flexShrink:0}}>
+              <select value={task.status} onChange={e=>updateStatus(task.id,e.target.value)} style={{background:"#F7F9FC",border:`1px solid ${SC[task.status]}55`,borderRadius:6,padding:"2px 5px",color:SC[task.status],fontSize:10,cursor:"pointer",fontWeight:"600",outline:"none"}}>
+                {SO.map(s=><option key={s} value={s}>{s}</option>)}
+              </select>
+              <button onClick={()=>deleteTask(task.id)} style={{background:"none",border:"none",color:"#C8D0E0",cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>×</button>
+            </div>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+</div>
+```
+
+);
+}
+
+/* ════════════════════════════════
+Advisor
+════════════════════════════════ */
+function Advisor({project,tasks,goals}){
+const[msgs,setMsgs]=useState([]);const[inp,setInp]=useState(””);const[loading,setLoading]=useState(false);const ref=useRef(null);
+useEffect(()=>{ref.current?.scrollIntoView({behavior:“smooth”});},[msgs]);
+const send=async()=>{const text=inp.trim();if(!text||loading)return;setInp(””);const dl=gdl(project.deadline);const next=[…msgs,{role:“user”,content:text}];setMsgs(next);setLoading(true);
+const sys=`あなたは同人作家専属の熱血漫画コーチ。プロジェクト:${project.title} 締切残り:${dl!==null?dl+"日":"不明"} 総P:${project.totalPages||0} 1日目標:${goals?.dailyPages||"未設定"}p タスク:${tasks.length}件 完了:${tasks.filter(t=>t.status==="完了").length}件 熱血・親身・150字以内・絵文字OK`;
+try{const res=await fetch(“https://api.anthropic.com/v1/messages”,{method:“POST”,headers:{“Content-Type”:“application/json”},body:JSON.stringify({model:“claude-sonnet-4-20250514”,max_tokens:1000,system:sys,messages:next})});const data=await res.json();setMsgs([…next,{role:“assistant”,content:data.content?.map(b=>b.text||””).join(””)||“エラー”}]);}catch{setMsgs([…next,{role:“assistant”,content:“通信エラーです。”}]);}setLoading(false);};
+return(
+<div style={{display:“flex”,flexDirection:“column”,height:“100%”,minHeight:0}}>
+<div style={{flex:1,overflowY:“auto”,padding:“10px”,display:“flex”,flexDirection:“column”,gap:8,minHeight:0}}>
+{msgs.length===0&&<div style={{color:”#C0C8D8”,fontSize:12,textAlign:“center”,marginTop:30,lineHeight:1.9}}>コーチに何でも相談を！<br/>進捗・ストーリー・モチベ維持</div>}
+{msgs.map((m,i)=>(<div key={i} style={{display:“flex”,justifyContent:m.role===“user”?“flex-end”:“flex-start”,gap:5,alignItems:“flex-end”}}>{m.role===“assistant”&&<div style={{width:22,height:22,borderRadius:“50%”,background:“linear-gradient(135deg,#F4A04A,#A04AF4)”,fontSize:11,display:“flex”,alignItems:“center”,justifyContent:“center”,flexShrink:0}}>🎯</div>}<div style={{maxWidth:“80%”,padding:“8px 11px”,borderRadius:m.role===“user”?“14px 14px 3px 14px”:“14px 14px 14px 3px”,background:m.role===“user”?“linear-gradient(135deg,#7BA7F7,#A78BF7)”:”#F0F4FA”,color:m.role===“user”?”#fff”:”#2A3550”,fontSize:12,lineHeight:1.65,whiteSpace:“pre-wrap”}}>{m.content}</div></div>))}
+{loading&&<div style={{display:“flex”,gap:5,alignItems:“flex-end”}}><div style={{width:22,height:22,borderRadius:“50%”,background:“linear-gradient(135deg,#F4A04A,#A04AF4)”,fontSize:11,display:“flex”,alignItems:“center”,justifyContent:“center”}}>🎯</div><div style={{padding:“8px 11px”,background:”#F0F4FA”,borderRadius:“14px 14px 14px 3px”,color:”#A0AABF”,fontSize:12}}>考え中…</div></div>}
+<div ref={ref}/>
+</div>
+<div style={{borderTop:“1px solid #EDF0F6”,padding:“8px”,display:“flex”,gap:6}}>
+<input value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key===“Enter”&&!e.shiftKey&&send()} placeholder=“相談する…” style={{flex:1,background:”#F7F9FC”,border:“1.5px solid #E4E8F0”,borderRadius:10,padding:“7px 10px”,color:”#2A3550”,fontSize:12,outline:“none”}}/>
+<button onClick={send} disabled={loading||!inp.trim()} style={{padding:“7px 12px”,borderRadius:10,border:“none”,cursor:loading||!inp.trim()?“default”:“pointer”,background:loading||!inp.trim()?”#EDF0F7”:“linear-gradient(135deg,#7BA7F7,#A78BF7)”,color:loading||!inp.trim()?”#B0BACC”:”#fff”,fontWeight:“700”,fontSize:12}}>送信</button>
+</div>
+</div>
+);
+}
+
+/* ════════════════════════════════
+MiniCalendar
+════════════════════════════════ */
+function MiniCalendar({calendar,onUpdate,deadline}){
+const today=new Date();const[cur,setCur]=useState({y:today.getFullYear(),m:today.getMonth()});const[sel,setSel]=useState(ymd(today));const[inp,setInp]=useState(””);
+const days=dim(cur.y,cur.m),first=fdw(cur.y,cur.m),todayStr=ymd(today),dlStr=deadline||””,selItems=calendar[sel]||[];
+const addItem=()=>{if(!inp.trim())return;onUpdate({…calendar,[sel]:[…(calendar[sel]||[]),{text:inp.trim(),done:false}]});setInp(””);};
+const toggleItem=idx=>{const arr=[…(calendar[sel]||[])];arr[idx]={…arr[idx],done:!arr[idx].done};onUpdate({…calendar,[sel]:arr});};
+const removeItem=idx=>onUpdate({…calendar,[sel]:(calendar[sel]||[]).filter((*,i)=>i!==idx)});
+const DOW=[“日”,“月”,“火”,“水”,“木”,“金”,“土”];
+// Apple Calendar link
+const openAppleCal=()=>{
+const d=new Date(sel);
+const url=`calshow:${Math.floor(d.getTime()/1000)}`;
+window.location.href=url;
+};
+return(
+<div style={{display:“flex”,flexDirection:“column”,gap:8,height:“100%”}}>
+<div style={{display:“flex”,alignItems:“center”,justifyContent:“space-between”}}>
+<button onClick={()=>setCur(c=>c.m===0?{y:c.y-1,m:11}:{y:c.y,m:c.m-1})} style={{background:“none”,border:“none”,cursor:“pointer”,fontSize:18,color:”#7B8DB0”,padding:“2px 8px”}}>‹</button>
+<div style={{display:“flex”,alignItems:“center”,gap:8}}>
+<span style={{fontSize:13,fontWeight:“700”,color:”#2A3550”}}>{cur.y}年{cur.m+1}月</span>
+<button onClick={openAppleCal} title=“iPhoneカレンダーを開く” style={{padding:“2px 8px”,borderRadius:6,border:“1px solid #E4E8F0”,background:”#F7F9FC”,color:”#5A7EF4”,fontSize:10,cursor:“pointer”,fontWeight:“600”}}>📅 カレンダーApp</button>
+</div>
+<button onClick={()=>setCur(c=>c.m===11?{y:c.y+1,m:0}:{y:c.y,m:c.m+1})} style={{background:“none”,border:“none”,cursor:“pointer”,fontSize:18,color:”#7B8DB0”,padding:“2px 8px”}}>›</button>
+</div>
+<div style={{display:“grid”,gridTemplateColumns:“repeat(7,1fr)”,gap:2}}>
+{DOW.map((d,i)=><div key={d} style={{textAlign:“center”,fontSize:10,fontWeight:“700”,color:i===0?”#F47B7B”:i===6?”#7BA7F7”:”#A0AABF”,padding:“2px 0”}}>{d}</div>)}
+{Array.from({length:first}).map((*,i)=><div key={“e”+i}/>)}
+{Array.from({length:days}).map((_,i)=>{
+const dd=String(i+1).padStart(2,“0”),mm=String(cur.m+1).padStart(2,“0”),dstr=`${cur.y}-${mm}-${dd}`;
+const isToday=dstr===todayStr,isSel=dstr===sel,isDL=dstr===dlStr,hasItem=(calendar[dstr]||[]).length>0,dow=(first+i)%7;
+return(<div key={i} onClick={()=>setSel(dstr)} style={{textAlign:“center”,fontSize:11,padding:“5px 2px”,borderRadius:7,cursor:“pointer”,position:“relative”,background:isSel?“linear-gradient(135deg,#7BA7F7,#A78BF7)”:isDL?”#FFE8E8”:isToday?”#EEF4FF”:“transparent”,color:isSel?”#fff”:isDL?”#E84545”:isToday?”#5A7EF4”:dow===0?”#F47B7B”:dow===6?”#7BA7F7”:”#2A3550”,fontWeight:isToday||isSel||isDL?“700”:“400”,border:isDL&&!isSel?“1.5px solid #F4A4A4”:“1.5px solid transparent”}}>
+{i+1}{hasItem&&!isSel&&<div style={{width:4,height:4,borderRadius:“50%”,background:”#A78BF7”,position:“absolute”,bottom:2,left:“50%”,transform:“translateX(-50%)”}}/>}{isDL&&!isSel&&<div style={{fontSize:7,color:”#E84545”,lineHeight:1}}>〆</div>}
+</div>);
+})}
+</div>
+<div style={{flex:1,minHeight:0,display:“flex”,flexDirection:“column”,gap:6}}>
+<div style={{fontSize:11,fontWeight:“700”,color:”#7B8DB0”}}>{sel} の予定</div>
+<div style={{flex:1,overflowY:“auto”,display:“flex”,flexDirection:“column”,gap:4}}>
+{selItems.length===0&&<div style={{color:”#C0C8D8”,fontSize:11,textAlign:“center”,paddingTop:8}}>予定なし</div>}
+{selItems.map((it,idx)=>(<div key={idx} style={{display:“flex”,alignItems:“center”,gap:6,padding:“5px 8px”,background:it.done?”#F5FFF8”:”#F7F9FC”,borderRadius:8,border:“1px solid #EDF0F7”}}>
+<div onClick={()=>toggleItem(idx)} style={{width:14,height:14,borderRadius:4,border:`2px solid ${it.done?"#48B06A":"#C0CADC"}`,background:it.done?”#48B06A”:“transparent”,cursor:“pointer”,flexShrink:0,display:“flex”,alignItems:“center”,justifyContent:“center”}}>{it.done&&<span style={{color:”#fff”,fontSize:9,lineHeight:1}}>✓</span>}</div>
+<span style={{flex:1,fontSize:11,color:it.done?”#88A898”:”#2A3550”,textDecoration:it.done?“line-through”:“none”}}>{it.text}</span>
+<button onClick={()=>removeItem(idx)} style={{background:“none”,border:“none”,color:”#C8D0E0”,cursor:“pointer”,fontSize:12,lineHeight:1,padding:0}}>×</button>
+</div>))}
+</div>
+<div style={{display:“flex”,gap:5}}>
+<input value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key===“Enter”&&addItem()} placeholder=“予定を追加…” style={{flex:1,background:”#F7F9FC”,border:“1.5px solid #E4E8F0”,borderRadius:8,padding:“6px 9px”,color:”#2A3550”,fontSize:11,outline:“none”}}/>
+<button onClick={addItem} disabled={!inp.trim()} style={{padding:“6px 10px”,borderRadius:8,border:“none”,cursor:inp.trim()?“pointer”:“default”,background:inp.trim()?“linear-gradient(135deg,#7BA7F7,#A78BF7)”:”#EDF0F7”,color:inp.trim()?”#fff”:”#B0BACC”,fontWeight:“700”,fontSize:11}}>＋</button>
+</div>
+</div>
+</div>
+);
+}
+
+/* ════════════════════════════════
+Main App
+════════════════════════════════ */
+function App(){
+const[data,setData]=useState(()=>{try{const r=localStorage.getItem(SK);return r?{…DD,…JSON.parse(r)}:DD;}catch{return DD;}});
+const[lc,setLc]=useState(“プロット/ネーム”);
+const[rt,setRt]=useState(“カレンダー”);
+const[ep,setEp]=useState(false);
+const[pf,setPf]=useState(data.project);
+const save=d=>{setData(d);try{localStorage.setItem(SK,JSON.stringify(d));}catch{}};
+const dl=gdl(data.project.deadline),dc=uc(dl),dm=um(dl);
+const ps=cps(data.tasks,data.project.totalPages);
+const sp=()=>{save({…data,project:pf});setEp(false);};
+const updatePanels=panels=>save({…data,panels});
+const updateCalendar=calendar=>save({…data,calendar});
+const RT=[“カレンダー”,“進捗管理”,“アドバイス”];
+const card={background:”#fff”,borderRadius:14,border:“1.5px solid #EDF0F7”,boxShadow:“0 2px 12px rgba(100,120,200,0.06)”};
+
+return(
+<div style={{height:“100%”,background:”#F2F5FA”,display:“flex”,flexDirection:“column”,overflow:“hidden”}}>
+{/* Header */}
+<div style={{background:”#fff”,borderBottom:“1.5px solid #EDF0F7”,padding:“0 12px”,flexShrink:0,boxShadow:“0 1px 8px rgba(100,120,200,0.06)”}}>
+<div style={{display:“flex”,alignItems:“center”,justifyContent:“space-between”,height:50}}>
+<div style={{display:“flex”,alignItems:“center”,gap:7}}>
+<div style={{width:32,height:32,borderRadius:9,background:“linear-gradient(135deg,#FFF0E8,#F0E8FF)”,border:“1.5px solid #EAD8FF”,display:“flex”,alignItems:“center”,justifyContent:“center”,fontSize:16}}>✏️</div>
+<div>
+<div style={{fontSize:13,fontWeight:“800”,background:“linear-gradient(90deg,#F4A04A,#A04AF4)”,WebkitBackgroundClip:“text”,WebkitTextFillColor:“transparent”}}>同人コーチ</div>
+<div style={{fontSize:9,color:”#C0C8D8”}}>Doujin Production Manager</div>
+</div>
+</div>
+<div style={{textAlign:“center”,flex:1,padding:“0 8px”}}>
+{ep?(
+<div style={{display:“flex”,gap:4,alignItems:“center”,flexWrap:“wrap”,justifyContent:“center”}}>
+<input value={pf.title} onChange={e=>setPf({…pf,title:e.target.value})} placeholder=“タイトル” style={{background:”#F7F9FC”,border:“1.5px solid #E4E8F0”,borderRadius:8,padding:“4px 8px”,color:”#2A3550”,fontSize:12,outline:“none”,width:90}}/>
+<input value={pf.event} onChange={e=>setPf({…pf,event:e.target.value})} placeholder=“イベント” style={{background:”#F7F9FC”,border:“1.5px solid #E4E8F0”,borderRadius:8,padding:“4px 8px”,color:”#2A3550”,fontSize:12,outline:“none”,width:80}}/>
+<input type=“date” value={pf.deadline} onChange={e=>setPf({…pf,deadline:e.target.value})} style={{background:”#F7F9FC”,border:“1.5px solid #E4E8F0”,borderRadius:8,padding:“4px 6px”,color:”#2A3550”,fontSize:11,outline:“none”}}/>
+<input type=“number” value={pf.totalPages} onChange={e=>setPf({…pf,totalPages:e.target.value})} placeholder=“総P” style={{background:”#F7F9FC”,border:“1.5px solid #E4E8F0”,borderRadius:8,padding:“4px 6px”,color:”#2A3550”,fontSize:12,outline:“none”,width:50}}/>
+<button onClick={sp} style={{padding:“5px 10px”,borderRadius:8,border:“none”,background:“linear-gradient(135deg,#7BA7F7,#A78BF7)”,color:”#fff”,fontWeight:“700”,fontSize:12,cursor:“pointer”}}>保存</button>
+<button onClick={()=>setEp(false)} style={{padding:“5px 8px”,borderRadius:8,border:“1.5px solid #E4E8F0”,background:“transparent”,color:”#8899B8”,fontSize:12,cursor:“pointer”}}>×</button>
+</div>
+):(
+<div style={{cursor:“pointer”}} onClick={()=>{setPf(data.project);setEp(true);}}>
+<div style={{fontSize:13,fontWeight:“800”,color:”#2A3550”}}>{data.project.title||“プロジェクト名”}</div>
+<div style={{fontSize:9,color:”#A0AABF”}}>{data.project.event||“イベント未設定”} — タップして編集</div>
+</div>
+)}
+</div>
+<div style={{display:“flex”,alignItems:“center”,gap:6}}>
+<div style={{textAlign:“right”}}>
+<div style={{fontSize:9,color:”#A0AABF”}}>現在の進捗</div>
+<div style={{fontSize:13,fontWeight:“900”,color:”#5A7EF4”,fontVariantNumeric:“tabular-nums”,whiteSpace:“nowrap”}}>{ps[“全体”].done}<span style={{fontSize:9,color:”#9AAEDD”}}>p</span><span style={{fontSize:11,color:”#C8D4EE”,margin:“0 2px”}}>/</span>{ps[“全体”].total||”—”}<span style={{fontSize:9,color:”#9AAEDD”}}>p</span></div>
+</div>
+<div style={{background:dl!==null&&dl<7?”#FFF2F2”:”#F2F8FF”,border:`1.5px solid ${dc}30`,borderRadius:10,padding:“4px 8px”,textAlign:“center”,minWidth:52}}>
+{data.project.deadline?(<><div style={{fontSize:10,fontWeight:“800”,color:dc,whiteSpace:“nowrap”}}>{dl!==null&&dl>=0?`残り${dl}日`:dl===null?“未設定”:“期限切れ”}</div><div style={{fontSize:8,color:”#A0AABF”}}>{data.project.deadline}</div></>):(<div style={{fontSize:9,color:”#B0BACC”,cursor:“pointer”}} onClick={()=>{setPf(data.project);setEp(true);}}>〆切<br/>未設定</div>)}
+</div>
+</div>
+</div>
+</div>
+{/* Coach strip */}
+<div style={{background:`linear-gradient(135deg,${dc}15,${dc}06)`,borderBottom:`1px solid ${dc}25`,padding:“4px 12px”,flexShrink:0}}>
+<span style={{fontSize:11,fontWeight:“700”,color:dc}}>{dm}</span>
+</div>
+{/* 2-pane */}
+<div style={{flex:1,display:“flex”,gap:8,padding:“8px 10px”,minHeight:0,overflow:“hidden”}}>
+{/* LEFT */}
+<div style={{…card,display:“flex”,flexDirection:“column”,width:“42%”,minWidth:0,overflow:“hidden”}}>
+<div style={{display:“flex”,borderBottom:“1.5px solid #EDF0F7”,padding:“0 6px”,flexShrink:0}}>
+{LC.map(cat=>(<button key={cat} onClick={()=>setLc(cat)} style={{padding:“7px 7px”,border:“none”,borderRadius:“6px 6px 0 0”,cursor:“pointer”,fontSize:10,background:lc===cat?”#F2F5FA”:“transparent”,color:lc===cat?”#7B5CF4”:”#A0AABF”,fontWeight:lc===cat?“700”:“400”,borderBottom:lc===cat?“2px solid #A04AF4”:“2px solid transparent”,whiteSpace:“nowrap”}}>{cat}</button>))}
+</div>
+<div style={{flex:1,padding:“8px”,overflow:“hidden”,display:“flex”,flexDirection:“column”}}>
+{lc===“プロット/ネーム”&&<PlotGrid panels={data.panels} onUpdate={updatePanels}/>}
+{lc===“原稿”&&<MansionGrid panels={data.panels} onUpdate={updatePanels}/>}
+{lc===“グッズ/ノベルティ”&&<GoodsGrid panels={data.panels} onUpdate={updatePanels}/>}
+</div>
+</div>
+{/* RIGHT */}
+<div style={{…card,display:“flex”,flexDirection:“column”,flex:1,minWidth:0,overflow:“hidden”}}>
+<div style={{padding:“8px 12px 0”,flexShrink:0}}>
+<div style={{display:“flex”,justifyContent:“space-between”,alignItems:“center”,marginBottom:6}}>
+<div style={{fontSize:10,color:”#A0AABF”}}>〆切: <span style={{fontWeight:“700”,color:dc}}>{data.project.deadline||“未設定”}</span></div>
+<div style={{display:“flex”,gap:3}}>
+{PS.map(s=>{const st=SS[s],pg=ps[s];return(<div key={s} style={{background:st.soft,borderRadius:7,padding:“2px 6px”,border:`1px solid ${st.ac}30`,textAlign:“center”}}><div style={{fontSize:8,fontWeight:“700”,color:st.ac}}>{s}</div><div style={{fontSize:10,fontWeight:“800”,color:st.ac,fontVariantNumeric:“tabular-nums”}}>{pg.done}<span style={{fontSize:7}}>p</span>/{pg.total||”—”}<span style={{fontSize:7}}>p</span></div></div>);})}
+</div>
+</div>
+<div style={{display:“flex”,gap:3}}>
+{RT.map(t=>(<button key={t} onClick={()=>setRt(t)} style={{padding:“5px 11px”,border:“none”,borderRadius:“6px 6px 0 0”,cursor:“pointer”,fontSize:11,background:rt===t?”#F2F5FA”:“transparent”,color:rt===t?”#7B5CF4”:”#A0AABF”,fontWeight:rt===t?“700”:“400”,borderBottom:rt===t?“2px solid #A04AF4”:“2px solid transparent”}}>{t}</button>))}
+</div>
+</div>
+<div style={{borderTop:“1.5px solid #EDF0F7”,flex:1,padding:“10px 12px”,overflow:“hidden”,display:“flex”,flexDirection:“column”}}>
+{rt===“カレンダー”&&<MiniCalendar calendar={data.calendar} onUpdate={updateCalendar} deadline={data.project.deadline}/>}
+{rt===“進捗管理”&&<ProgressPane data={data} save={save}/>}
+{rt===“アドバイス”&&<Advisor project={data.project} tasks={data.tasks} goals={data.goals}/>}
+</div>
+</div>
+</div>
+</div>
+);
+}
+ReactDOM.createRoot(document.getElementById(“root”)).render(<App/>);
 </script>
+
 </body>
 </html>
-
