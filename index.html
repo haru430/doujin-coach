@@ -1,1 +1,55 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="同人コーチ"/>
+<meta name="theme-color" content="#A04AF4"/>
+<title>同人コーチ</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0;}
+html,body,#root{height:100%;overflow:hidden;}
+body{background:#F2F5FA;font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;}
+input,select,textarea,button{font-family:inherit;}
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:#C8D4E8;border-radius:4px;}
+#root{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const swCode=`const CACHE="doujin-v1";self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll([])).then(()=>self.skipWaiting()));});self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});self.addEventListener("fetch",e=>{if(e.request.url.includes("anthropic.com"))return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)));});`;
+if("serviceWorker"in navigator){const b=new Blob([swCode],{type:"text/javascript"});navigator.serviceWorker.register(URL.createObjectURL(b),{scope:"./"}).catch(()=>{});}
+const m={name:"同人コーチ",short_name:"同人コーチ",display:"standalone",background_color:"#F2F5FA",theme_color:"#A04AF4",start_url:"./",icons:[{src:"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%23A04AF4'/><text y='140' x='96' text-anchor='middle' font-size='120'>✏️</text></svg>",sizes:"192x192",type:"image/svg+xml"}]};
+const mb=new Blob([JSON.stringify(m)],{type:"application/manifest+json"});
+const ml=document.createElement("link");ml.rel="manifest";ml.href=URL.createObjectURL(mb);document.head.appendChild(ml);
+const fixH=()=>{document.body.style.height=window.innerHeight+"px";const r=document.getElementById("root");if(r)r.style.height=window.innerHeight+"px";};fixH();window.addEventListener("resize",fixH);
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script type="text/babel" data-presets="react">
+const{useState,useEffect,useRef}=React;
+const SK="doujin-v3";
+const DD={project:{title:"無題",event:"",deadline:"",totalPages:0},panels:{"プロット/ネーム":[],"原稿":[],"グッズ/バナー":[]},tasks:[],calendar:{},nextTaskId:1};
+const PS=["ネーム","下描き","ペン入れ","仕上げ"];
+const SS={"ネーム":{soft:"#FFF8F0",ac:"#F4A04A"},"下描き":{soft:"#F0FAF4",ac:"#48B06A"},"ペン入れ":{soft:"#F0F5FF",ac:"#4A7CF4"},"仕上げ":{soft:"#F8F0FF",ac:"#A04AF4"}};
+const LC=["プロット/ネーム","原稿","グッズ/バナー"];
+const SO=["未着手","作業中","完了"];
+const SC={"未着手":"#B0BAD0","作業中":"#F4A04A","完了":"#48B06A"};
+const SPO=["未着手","作業中","完了","保留"];
+const SPB={"未着手":"#F0F4FA","作業中":"#FFF8F0","完了":"#F0FAF4","保留":"#F8F0FF"};
+const SPD={"未着手":"#D0D8EC","作業中":"#F4C08A","完了":"#90D4A8","保留":"#C890EC"};
+const SPT={"未着手":"#7B8DB0","作業中":"#C07020","完了":"#2A7A4A","保留":"#7020C0"};
+function gdl(dl){if(!dl)return null;const t=new Date();t.setHours(0,0,0,0);const d=new Date(dl);d.setHours(0,0,0,0);return Math.ceil((d-t)/86400000);}
+function uc(dl){if(dl===null)return"#A0AABF";if(dl<0)return"#B0B8C8";if(dl<3)return"#E84545";if(dl<7)return"#F47B20";if(dl<14)return"#D4960A";return"#48B06A";}
+function um(dl){if(dl===null)return"締め切りを設定しましょう";if(dl<0)return"締め切りが過ぎています…";if(dl===0)return"今日が締め切り！急いで！";if(dl<3)return"🚨 緊急！今すぐ作業して！";if(dl<7)return"🔥 ラストスパート！";if(dl<14)return"⚡ そろそろ本気を出す時！";return"✨ 余裕あり！コツコツ進めよう";}
+function cps(tasks,tp){const r={};for(const s of PS){const st=tasks.filter(t=>t.stage===s);r[s]={done:st.filter(t=>t.status==="完了").reduce((a,t)=>a+(Number(t.pages)||0),0),total:st.reduce((a,t)=>a+(Number(t.pages)||0),0)};}r["全体"]={done:r["仕上げ"].done,total:Number(tp)||0};return r;}
+function ymd(d){return d.toISOString().slice(0,10);}
+function dim(y,m){return new Date(y,m+1,0).getDate();}
+function fdw(y,m){return new Date(y,m,1).getDay();}
 
