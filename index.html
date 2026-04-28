@@ -257,3 +257,125 @@ return(<div style={{display:"flex",flexDirection:"column",gap:10,height:"100%",m
 <button onClick={()=>deleteTask(task.id)} style={{background:"none",border:"none",color:"#C0D4E8",cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>×</button>
 </div></div></div>);})}
 </div></div>);}
+function Advisor({project,tasks,goals}){
+const[msgs,setMsgs]=useState([]);const[inp2,setInp2]=useState("");const[loading,setLoading]=useState(false);const ref=useRef(null);
+useEffect(()=>{ref.current?.scrollIntoView({behavior:"smooth"});},[msgs]);
+const send=async()=>{const text=inp2.trim();if(!text||loading)return;setInp2("");const dl=gdl(project.deadline);const next=[...msgs,{role:"user",content:text}];setMsgs(next);setLoading(true);
+const sys=`あなたは同人作家専属の熱血漫画コーチ。プロジェクト:${project.title} 締切残り:${dl!==null?dl+"日":"不明"} 総P:${project.totalPages||0} 1日目標:${goals?.dailyPages||"未設定"}p タスク:${tasks.length}件 完了:${tasks.filter(t=>t.status==="完了").length}件 熱血・親身・150字以内・絵文字OK`;
+try{const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,system:sys,messages:next})});const d=await res.json();setMsgs([...next,{role:"assistant",content:d.content?.map(b=>b.text||"").join("")||"エラー"}]);}catch{setMsgs([...next,{role:"assistant",content:"通信エラーです。"}]);}setLoading(false);};
+return(<div style={{display:"flex",flexDirection:"column",height:"100%",minHeight:0}}>
+<div style={{flex:1,overflowY:"auto",padding:"10px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
+{msgs.length===0&&<div style={{color:"#B0C4E0",fontSize:12,textAlign:"center",marginTop:30,lineHeight:1.9}}>コーチに何でも相談を！<br/>進捗・ストーリー・モチベ維持</div>}
+{msgs.map((m,i)=>(<div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",gap:5,alignItems:"flex-end"}}>
+{m.role==="assistant"&&<div style={{width:22,height:22,borderRadius:"50%",background:"linear-gradient(135deg,#5B8DEF,#8B6FDF)",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>🎯</div>}
+<div style={{maxWidth:"80%",padding:"8px 11px",borderRadius:m.role==="user"?"14px 14px 3px 14px":"14px 14px 14px 3px",background:m.role==="user"?"linear-gradient(135deg,#5B8DEF,#8B6FDF)":"#EEF4FD",color:m.role==="user"?"#fff":"#2A3A5C",fontSize:12,lineHeight:1.65,whiteSpace:"pre-wrap"}}>{m.content}</div>
+</div>))}
+{loading&&<div style={{display:"flex",gap:5,alignItems:"flex-end"}}><div style={{width:22,height:22,borderRadius:"50%",background:"linear-gradient(135deg,#5B8DEF,#8B6FDF)",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}}>🎯</div><div style={{padding:"8px 11px",background:"#EEF4FD",borderRadius:"14px 14px 14px 3px",color:"#A0B4D8",fontSize:12}}>考え中…</div></div>}
+<div ref={ref}/>
+</div>
+<div style={{borderTop:"1px solid #D6E4F7",padding:"8px",display:"flex",gap:6}}>
+<input value={inp2} onChange={e=>setInp2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} placeholder="相談する…" style={{...I(),flex:1}}/>
+<button onClick={send} disabled={loading||!inp2.trim()} style={{...B(),padding:"7px 12px",background:loading||!inp2.trim()?"#D6E4F7":"linear-gradient(135deg,#5B8DEF,#8B6FDF)",color:loading||!inp2.trim()?"#A0B4D8":"#fff"}}>送信</button>
+</div></div>);}
+
+function MiniCalendar({calendar,onUpdate,deadline}){
+const today=new Date();const[cur,setCur]=useState({y:today.getFullYear(),m:today.getMonth()});const[sel,setSel]=useState(ymd(today));const[inp2,setInp2]=useState("");
+const days=dim(cur.y,cur.m),first=fdw(cur.y,cur.m),todayStr=ymd(today),dlStr=deadline||"",selItems=calendar[sel]||[];
+const addItem=()=>{if(!inp2.trim())return;onUpdate({...calendar,[sel]:[...(calendar[sel]||[]),{text:inp2.trim(),done:false}]});setInp2("");};
+const toggleItem=idx=>{const arr=[...(calendar[sel]||[])];arr[idx]={...arr[idx],done:!arr[idx].done};onUpdate({...calendar,[sel]:arr});};
+const removeItem=idx=>onUpdate({...calendar,[sel]:(calendar[sel]||[]).filter((_,i)=>i!==idx)});
+const DOW=["日","月","火","水","木","金","土"];
+return(<div style={{display:"flex",flexDirection:"column",gap:8,height:"100%"}}>
+<div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+<button onClick={()=>setCur(c=>c.m===0?{y:c.y-1,m:11}:{y:c.y,m:c.m-1})} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#8AAAD0",padding:"2px 8px"}}>‹</button>
+<div style={{display:"flex",alignItems:"center",gap:8}}>
+<span style={{fontSize:13,fontWeight:"700",color:"#2A3A5C"}}>{cur.y}年{cur.m+1}月</span>
+<button onClick={()=>window.open(`https://calendar.google.com/calendar/r/${cur.y}/${cur.m+1}`,"_blank")} style={{padding:"2px 8px",borderRadius:6,border:"1px solid #C8DAEF",background:"#F4F8FF",color:"#5B8DEF",fontSize:10,cursor:"pointer",fontWeight:"600"}}>📅 Googleカレンダー</button>
+</div>
+<button onClick={()=>setCur(c=>c.m===11?{y:c.y+1,m:0}:{y:c.y,m:c.m+1})} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#8AAAD0",padding:"2px 8px"}}>›</button>
+</div>
+<div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
+{DOW.map((d,i)=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:"700",color:i===0?"#E87878":i===6?"#5B8DEF":"#8AAAD0",padding:"2px 0"}}>{d}</div>)}
+{Array.from({length:first}).map((_,i)=><div key={"e"+i}/>)}
+{Array.from({length:days}).map((_,i)=>{
+const dd=String(i+1).padStart(2,"0"),mm=String(cur.m+1).padStart(2,"0"),dstr=`${cur.y}-${mm}-${dd}`;
+const isToday=dstr===todayStr,isSel=dstr===sel,isDL=dstr===dlStr,hasItem=(calendar[dstr]||[]).length>0,dow=(first+i)%7;
+return(<div key={i} onClick={()=>setSel(dstr)} style={{textAlign:"center",fontSize:11,padding:"5px 2px",borderRadius:7,cursor:"pointer",position:"relative",background:isSel?"linear-gradient(135deg,#5B8DEF,#8B6FDF)":isDL?"#FFE8E8":isToday?"#EEF4FF":"transparent",color:isSel?"#fff":isDL?"#E84545":isToday?"#5B8DEF":dow===0?"#E87878":dow===6?"#5B8DEF":"#2A3A5C",fontWeight:isToday||isSel||isDL?"700":"400",border:isDL&&!isSel?"1.5px solid #F4A4A4":"1.5px solid transparent"}}>
+{i+1}{hasItem&&!isSel&&<div style={{width:4,height:4,borderRadius:"50%",background:"#8B6FDF",position:"absolute",bottom:2,left:"50%",transform:"translateX(-50%)"}}/>}{isDL&&!isSel&&<div style={{fontSize:7,color:"#E84545",lineHeight:1}}>〆</div>}
+</div>);})}
+</div>
+<div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column",gap:6}}>
+<div style={{fontSize:11,fontWeight:"700",color:"#7A90B8"}}>{sel} の予定</div>
+<div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>
+{selItems.length===0&&<div style={{color:"#B0C4E0",fontSize:11,textAlign:"center",paddingTop:8}}>予定なし</div>}
+{selItems.map((it,idx)=>(<div key={idx} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 8px",background:it.done?"#F0FAF4":"#F4F8FF",borderRadius:8,border:"1px solid #D6E4F7"}}>
+<div onClick={()=>toggleItem(idx)} style={{width:14,height:14,borderRadius:4,border:`2px solid ${it.done?"#48B06A":"#B8CCEE"}`,background:it.done?"#48B06A":"transparent",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{it.done&&<span style={{color:"#fff",fontSize:9,lineHeight:1}}>✓</span>}</div>
+<span style={{flex:1,fontSize:11,color:it.done?"#6A9A80":"#2A3A5C",textDecoration:it.done?"line-through":"none"}}>{it.text}</span>
+<button onClick={()=>removeItem(idx)} style={{background:"none",border:"none",color:"#C0D4E8",cursor:"pointer",fontSize:12,lineHeight:1,padding:0}}>×</button>
+</div>))}
+</div>
+<div style={{display:"flex",gap:5}}>
+<input value={inp2} onChange={e=>setInp2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addItem()} placeholder="予定を追加…" style={{...I(),flex:1,fontSize:11,padding:"6px 9px"}}/>
+<button onClick={addItem} disabled={!inp2.trim()} style={{...B(),padding:"6px 10px",background:inp2.trim()?"linear-gradient(135deg,#5B8DEF,#8B6FDF)":"#D6E4F7",color:inp2.trim()?"#fff":"#A0B4D8"}}>＋</button>
+</div>
+</div></div>);}
+
+function App(){
+const[data,setData]=useState(()=>{try{const r=localStorage.getItem(SK);const loaded=r?JSON.parse(r):{};return{...DD,...loaded,stageDL:{...DD.stageDL,...(loaded.stageDL||{})},panels:{...DD.panels,...(loaded.panels||{})},goals:{...DD.goals,...(loaded.goals||{})}};}catch{return DD;}});
+const[lc,setLc]=useState("プロット/ネーム");const[rt,setRt]=useState("カレンダー");const[ep,setEp]=useState(false);const[pf,setPf]=useState(data.project);
+const save=d=>{setData(d);try{localStorage.setItem(SK,JSON.stringify(d));}catch{}};
+const dl=gdl(data.project.deadline),dc=urgCol(dl);
+const ps=cps(data.tasks,data.project.totalPages);
+const sp=()=>{save({...data,project:pf});setEp(false);};
+const up=panels=>save({...data,panels});
+const uc2=calendar=>save({...data,calendar});
+const RT=["カレンダー","進捗管理","アドバイス"];
+const LC_TABS=["プロット/ネーム","原稿","グッズ/ノベルティ"];
+const CARD_ST={background:"#fff",borderRadius:14,border:"1.5px solid #D6E4F7",boxShadow:"0 2px 14px rgba(80,120,200,0.08)"};
+const BookIcon=()=>(<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="32" height="32" rx="8" fill="#C8DAEF"/><rect x="8" y="5" width="14" height="19" rx="2" fill="white" stroke="#5B8DEF" strokeWidth="1.2"/><rect x="6" y="7" width="14" height="19" rx="2" fill="#EEF4FD" stroke="#8B6FDF" strokeWidth="1"/><rect x="4" y="9" width="14" height="19" rx="2" fill="white" stroke="#5B8DEF" strokeWidth="1"/><line x1="7" y1="14" x2="15" y2="14" stroke="#5B8DEF" strokeWidth="1.2" strokeLinecap="round"/><line x1="7" y1="17" x2="15" y2="17" stroke="#B8CCF0" strokeWidth="1" strokeLinecap="round"/><line x1="7" y1="20" x2="12" y2="20" stroke="#B8CCF0" strokeWidth="1" strokeLinecap="round"/></svg>);
+return(<div style={{height:"100%",background:"#EEF4FD",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+<div style={{background:"#fff",borderBottom:"1.5px solid #D6E4F7",padding:"0 12px",flexShrink:0,boxShadow:"0 1px 8px rgba(80,120,200,0.08)"}}>
+<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",height:50}}>
+<div style={{display:"flex",alignItems:"center",gap:7}}><BookIcon/><div><div style={{fontSize:13,fontWeight:"800",background:"linear-gradient(90deg,#5B8DEF,#8B6FDF)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>原稿進捗管理</div><div style={{fontSize:9,color:"#B0C4E0"}}>Manuscript Progress Manager</div></div></div>
+<div style={{textAlign:"center",flex:1,padding:"0 8px"}}>
+{ep?(<div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",justifyContent:"center"}}>
+<input value={pf.title} onChange={e=>setPf({...pf,title:e.target.value})} placeholder="タイトル" style={{...I(),width:90}}/>
+<input value={pf.event} onChange={e=>setPf({...pf,event:e.target.value})} placeholder="イベント" style={{...I(),width:80}}/>
+<input type="date" value={pf.deadline} onChange={e=>setPf({...pf,deadline:e.target.value})} style={{...I(),width:"auto"}}/>
+<input type="number" value={pf.totalPages} onChange={e=>setPf({...pf,totalPages:e.target.value})} placeholder="総P" style={{...I(),width:50}}/>
+<button onClick={sp} style={{...B(),padding:"5px 10px"}}>保存</button>
+<button onClick={()=>setEp(false)} style={{padding:"5px 8px",borderRadius:9,border:"1px solid #C8DAEF",background:"transparent",color:"#8AAAD0",fontSize:12,cursor:"pointer"}}>×</button>
+</div>):(<div style={{cursor:"pointer"}} onClick={()=>{setPf(data.project);setEp(true);}}>
+<div style={{fontSize:13,fontWeight:"800",color:"#2A3A5C"}}>{data.project.title||"プロジェクト名"}</div>
+<div style={{fontSize:9,color:"#A0B4D8"}}>{data.project.event||"イベント未設定"} — タップして編集</div>
+</div>)}
+</div>
+<div style={{display:"flex",alignItems:"center",gap:6}}>
+<div style={{textAlign:"right"}}><div style={{fontSize:9,color:"#A0B4D8"}}>仕上げ完了</div><div style={{fontSize:13,fontWeight:"900",color:"#5B8DEF",fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}}>{ps["全体"].done}<span style={{fontSize:9,color:"#8AAAD0"}}>p</span><span style={{fontSize:11,color:"#C0D4F0",margin:"0 2px"}}>/</span>{ps["全体"].total||"—"}<span style={{fontSize:9,color:"#8AAAD0"}}>p</span></div></div>
+</div>
+</div></div>
+<DeadlineBanner project={data.project} stageDL={data.stageDL||{}} ps={ps}/>
+<div style={{flex:1,display:"flex",gap:8,padding:"8px 10px",minHeight:0,overflow:"hidden"}}>
+<div style={{...CARD_ST,display:"flex",flexDirection:"column",width:"44%",minWidth:0,overflow:"hidden"}}>
+<div style={{display:"flex",borderBottom:"1.5px solid #D6E4F7",padding:"0 6px",flexShrink:0}}>
+{LC_TABS.map(cat=>(<button key={cat} onClick={()=>setLc(cat)} style={{padding:"7px 6px",border:"none",borderRadius:"6px 6px 0 0",cursor:"pointer",fontSize:10,background:lc===cat?"#EEF4FD":"transparent",color:lc===cat?"#5B8DEF":"#8AAAD0",fontWeight:lc===cat?"700":"400",borderBottom:lc===cat?"2px solid #5B8DEF":"2px solid transparent",whiteSpace:"nowrap"}}>{cat}</button>))}
+</div>
+<div style={{flex:1,padding:"8px",overflow:"hidden",display:"flex",flexDirection:"column"}}>
+{lc==="プロット/ネーム"&&<PlotMemo data={data} save={save}/>}
+{lc==="原稿"&&<MansionGrid panels={data.panels} onUpdate={up}/>}
+{lc==="グッズ/ノベルティ"&&<GoodsGrid panels={data.panels} onUpdate={up}/>}
+</div></div>
+<div style={{...CARD_ST,display:"flex",flexDirection:"column",flex:1,minWidth:0,overflow:"hidden"}}>
+<div style={{padding:"8px 12px 0",flexShrink:0}}>
+<div style={{display:"flex",gap:3,marginBottom:0}}>{RT.map(t=>(<button key={t} onClick={()=>setRt(t)} style={{padding:"5px 11px",border:"none",borderRadius:"6px 6px 0 0",cursor:"pointer",fontSize:11,background:rt===t?"#EEF4FD":"transparent",color:rt===t?"#5B8DEF":"#8AAAD0",fontWeight:rt===t?"700":"400",borderBottom:rt===t?"2px solid #5B8DEF":"2px solid transparent"}}>{t}</button>))}</div>
+</div>
+<div style={{borderTop:"1.5px solid #D6E4F7",flex:1,padding:"10px 12px",overflow:"hidden",display:"flex",flexDirection:"column"}}>
+{rt==="カレンダー"&&<MiniCalendar calendar={data.calendar} onUpdate={uc2} deadline={data.project.deadline}/>}
+{rt==="進捗管理"&&<ProgressPane data={data} save={save}/>}
+{rt==="アドバイス"&&<Advisor project={data.project} tasks={data.tasks} goals={data.goals}/>}
+</div></div></div>
+</div>);}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
